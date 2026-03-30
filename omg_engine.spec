@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
-hiddenimports = ['omg.rpc_server', 'omg.core.barcode_engine', 'omg.core.formula_engine', 'omg.core.template_engine', 'omg.core.field_binder', 'omg.data.csv_adapter', 'omg.data.excel_adapter', 'omg.data.sql_adapter', 'omg.print.row_renderer', 'omg.print.batch_engine', 'omg.db.db_manager', 'chardet', 'chardet.universaldetector', 'openpyxl', 'xlrd', 'xlwt']
+hiddenimports = ['omg.rpc_server', 'omg.core.barcode_engine', 'omg.core.formula_engine', 'omg.core.template_engine', 'omg.core.field_binder', 'omg.data.csv_adapter', 'omg.data.excel_adapter', 'omg.data.sql_adapter', 'omg.print.row_renderer', 'omg.print.batch_engine', 'omg.db.db_manager', 'chardet', 'chardet.universaldetector', 'openpyxl', 'xlrd', 'xlwt', 'fitz']
 hiddenimports += collect_submodules('barcode')
 hiddenimports += collect_submodules('qrcode')
 hiddenimports += collect_submodules('chardet')

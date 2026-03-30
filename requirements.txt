@@ -17,6 +17,7 @@ Pillow==10.3.0                  # Image processing; required by qrcode and Image
 reportlab==4.1.0                # PDF construction: canvas, platypus, SVG embedding
 svglib==1.5.1                   # Converts SVG barcode strings to ReportLab Drawing objects
 pypdf==4.2.0                    # PDF manipulation: merge pages, extract for preview
+PyMuPDF==1.24.1                 # PyMuPDF (fitz) for PDF rasterization and sizing
 pywin32==306                    # Windows Win32 print API (PrintDlg, StartDoc, EndDoc)
 
 # ── DATA ACCESS ───────────────────────────────────────────────────
