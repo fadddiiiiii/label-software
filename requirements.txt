@@ -1,0 +1,47 @@
+# ═══════════════════════════════════════════════════════════════════
+# OMG — Windows Dependencies (Python 3.11)
+# ═══════════════════════════════════════════════════════════════════
+
+# ── UI FRAMEWORK ──────────────────────────────────────────────────
+PyQt6==6.7.0                    # Qt6 UI framework: widgets, signals, painter, threading
+PyQt6-Qt6==6.7.0                # Qt6 runtime binaries bundled for PyInstaller
+PyQt6-sip==13.6.0               # SIP bindings layer for PyQt6
+
+# ── BARCODE & QR ──────────────────────────────────────────────────
+python-barcode==0.15.1          # Linear barcode renderer (Code128, EAN, ITF, Code39) → SVG
+qrcode[pil]==7.4.2              # QR Code matrix generator; PIL image factory
+treepoem==3.23.0                # DataMatrix, PDF417 via Ghostscript postscript backend
+Pillow==10.3.0                  # Image processing; required by qrcode and ImageField elements
+
+# ── PDF / PRINT OUTPUT ────────────────────────────────────────────
+reportlab==4.1.0                # PDF construction: canvas, platypus, SVG embedding
+svglib==1.5.1                   # Converts SVG barcode strings to ReportLab Drawing objects
+pypdf==4.2.0                    # PDF manipulation: merge pages, extract for preview
+pywin32==306                    # Windows Win32 print API (PrintDlg, StartDoc, EndDoc)
+
+# ── DATA ACCESS ───────────────────────────────────────────────────
+pandas==2.2.1                   # CSV/Excel read, column inference, row iteration
+openpyxl==3.1.2                 # Direct .xlsx read: named ranges, multi-sheet support
+SQLAlchemy==2.0.29              # DB ORM and connection pooling for SQL Server and Oracle
+pyodbc==5.1.0                   # ODBC driver for SQL Server connections via SQLAlchemy
+oracledb==2.1.1                 # Modern Oracle DB driver (successor to cx_Oracle)
+xlrd==2.0.1                     # Required for legacy Excel (.xls) support
+
+# ── LOCAL STORAGE ─────────────────────────────────────────────────
+# sqlite3 is part of Python stdlib — no pip install required
+alembic==1.13.1                 # SQLite schema migration management
+
+# ── FORMULA ENGINE ────────────────────────────────────────────────
+lark==1.1.9                     # PEG grammar parser for the binding formula mini-language
+python-dateutil==2.9.0          # Date parsing and formatting for DATE-type binding formulas
+
+# ── UTILITIES ─────────────────────────────────────────────────────
+pydantic==2.7.1                 # Data validation for template JSON schema and config objects
+loguru==0.7.2                   # Structured logging throughout the application
+watchdog==4.0.0                 # File system watcher for hot-reload of attached data source files
+platformdirs==4.2.1             # OS-correct paths for app data, config, and cache directories
+chardet==5.2.0                  # Character encoding detection for CSV files
+
+# ── BUILD / PACKAGING (build env only) ────────────────────────────
+# pyinstaller==6.6.0            # One-file EXE bundler for Windows deployment
+# nsis==0.1.5                   # Python wrapper to invoke NSIS installer script compilation

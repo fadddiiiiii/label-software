@@ -1,0 +1,54 @@
+# ═══════════════════════════════════════════════════════════════════
+# OMG — macOS Dependencies (Python 3.11)
+# Replaces pywin32 with pycups + pyobjc, uses python-oracledb
+# for Apple Silicon. All other packages identical to requirements.txt.
+# ═══════════════════════════════════════════════════════════════════
+
+# ── UI FRAMEWORK ──────────────────────────────────────────────────
+PyQt6==6.7.0
+PyQt6-Qt6==6.7.0
+PyQt6-sip==13.6.0
+
+# ── BARCODE & QR ──────────────────────────────────────────────────
+python-barcode==0.15.1
+qrcode[pil]==7.4.2
+treepoem==3.23.0
+Pillow==10.3.0
+
+# ── PDF / PRINT OUTPUT ────────────────────────────────────────────
+reportlab==4.1.0
+svglib==1.5.1
+pypdf==4.2.0
+# REMOVED: pywin32==306 (Windows only)
+# ADDED: macOS print layer
+pycups==2.0.4                   # CUPS print API binding for macOS
+pyobjc-core==10.2               # PyObjC core bridge
+pyobjc-framework-Cocoa==10.2    # AppKit / Foundation access
+pyobjc-framework-Quartz==10.2   # PDFKit / Quartz access for native print dialog
+
+# ── DATA ACCESS ───────────────────────────────────────────────────
+pandas==2.2.1
+openpyxl==3.1.2
+SQLAlchemy==2.0.29
+# REMOVED: pyodbc==5.1.0 (Windows ODBC driver — install separately if needed on macOS)
+# REMOVED: cx_Oracle==8.3.0 (does not support Apple Silicon arm64)
+# ADDED: python-oracledb for Apple Silicon (Thin mode, no Oracle Instant Client needed)
+# python-oracledb==2.2.0          # Optional Oracle support — install manually if needed
+
+# ── LOCAL STORAGE ─────────────────────────────────────────────────
+alembic==1.13.1
+
+# ── FORMULA ENGINE ────────────────────────────────────────────────
+lark==1.1.9
+python-dateutil==2.9.0
+
+# ── UTILITIES ─────────────────────────────────────────────────────
+pydantic==2.7.1
+loguru==0.7.2
+watchdog==4.0.0
+platformdirs==4.2.1
+chardet==5.2.0
+
+# ── BUILD / PACKAGING (macOS build env only) ──────────────────────
+# py2app==0.28.8               # .app bundle builder for macOS
+# create-dmg via Homebrew:     # brew install create-dmg

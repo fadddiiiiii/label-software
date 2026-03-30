@@ -1,0 +1,71 @@
+name: Build OMG Application
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Prepare Python Environment
+        shell: cmd
+        run: |
+          python -m venv .venv
+          call .venv\Scripts\activate.bat
+          python -m pip install --upgrade pip
+          pip install --upgrade setuptools wheel
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Python Backend (SPEC-based)
+        shell: cmd
+        run: |
+          call .venv\Scripts\activate.bat
+          pyinstaller --noconfirm --clean omg_engine.spec
+
+      - name: Build React UI
+        shell: cmd
+        working-directory: ui
+        run: |
+          call npm install --no-audit --no-fund
+          call npm run build
+
+      - name: Copy Engine to UI Bundle Folder
+        shell: cmd
+        run: |
+          if exist "%GITHUB_WORKSPACE%\ui\engine_bin" rmdir /s /q "%GITHUB_WORKSPACE%\ui\engine_bin"
+          mkdir "%GITHUB_WORKSPACE%\ui\engine_bin" 2>nul
+          xcopy /e /i /q "%GITHUB_WORKSPACE%\dist\omg_engine" "%GITHUB_WORKSPACE%\ui\engine_bin"
+
+      - name: Build Windows Installer (Electron Builder)
+        shell: cmd
+        working-directory: ui
+        run: |
+          call npx electron-builder --win --config --publish never
+
+      - name: Upload Windows Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: OMG-Windows-Setup
+          path: ui\release\*.exe
+          if-no-files-found: error

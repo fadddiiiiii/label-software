@@ -1,0 +1,77 @@
+# FILE: .github/workflows/tests.yml
+# LabelForge CI — Cross-Platform Tests
+# ADD-10 of macOS Platform Addendum
+# ═══════════════════════════════════════════════════════════════════
+
+name: LabelForge Tests
+
+on: [push, pull_request]
+
+jobs:
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install --upgrade setuptools
+          pip install -r requirements.txt
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run Windows tests
+        run: pytest tests/ -m "not e2e and not macos_only" --tb=short
+
+  test-macos:
+    runs-on: macos-14  # Apple Silicon runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Ghostscript
+        run: brew install ghostscript
+      - name: Install dependencies
+        run: |
+          pip install --upgrade setuptools
+          pip install -r requirements-macos.txt
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run macOS tests
+        run: pytest tests/ -m "not e2e and not windows_only" --tb=short
+
+  build-macos:
+    runs-on: macos-14
+    needs: test-macos
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build tools
+        run: brew install create-dmg
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-macos.txt
+          pip install py2app==0.28.8
+      - name: Build .app bundle
+        run: python setup.py py2app
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "LabelForge" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "LabelForge.app" 175 190 \
+            --hide-extension "LabelForge.app" \
+            --app-drop-link 425 190 \
+            "dist/LabelForge-1.0.0-macOS.dmg" \
+            "dist/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LabelForge-macOS
+          path: dist/LabelForge-*.dmg

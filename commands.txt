@@ -1,0 +1,8 @@
+# Electron + React dev
+cd ui && npm run electron:dev
+
+# Build for macOS
+./scripts/build_macos.sh
+
+# Build for Windows
+scripts\build_windows.bat
