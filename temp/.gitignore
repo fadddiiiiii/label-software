@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════════
+# OMG .gitignore
+# ═══════════════════════════════════════════════════════════
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Distribution / packaging
+dist/
+build/output/
+*.egg-info/
+*.egg
+*.whl
+
+# PyInstaller
+*.spec.bak
+
+# py2app
+build/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# SQLite database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+logs/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Pytest cache
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Environment variables
+.env
+.env.local
+
+# PDFs (spec documents — not part of source)
+*.pdf
+
+# UI Build and Dependencies
+ui/node_modules/
+ui/dist/
+ui/release/
+ui/.vite/

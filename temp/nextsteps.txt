@@ -1,0 +1,18 @@
+File Path / URL-Based Sync (Better)
+
+Instead of uploading the file itself:
+
+💡 Store:
+File path (local or network)
+OR a URL (Google Drive, S3, etc.)
+Flow:
+User links Excel (path or URL)
+You fetch and parse it
+On “Refresh Import” → fetch again → update data
+Example:
+import pandas as pd
+
+df = pd.read_excel("https://example.com/file.xlsx")
+✅ Pros:
+True refresh behavior
+Always latest data
