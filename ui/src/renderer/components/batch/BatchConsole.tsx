@@ -22,6 +22,17 @@ export default function BatchConsole() {
 
   const [printMode, setPrintMode] = useState<'pdf'|'zpl'>('pdf');
 
+  // Auto-detect best mode when printer changes
+  const isNativePrinter = (name: string) => {
+    const u = name.toUpperCase();
+    return ['TOSHIBA','TSC','B-FV','B-EV','B-SA','B-EX','ZEBRA','ZD','ZT','GK','GX','ZPL'].some(kw => u.includes(kw));
+  };
+
+  const handlePrinterChange = (name: string) => {
+    setSelectedPrinter(name);
+    setPrintMode(isNativePrinter(name) ? 'zpl' : 'pdf');
+  };
+
   // Fetch printers and apply defaults on mount
   useEffect(() => {
     const s = useSettingsStore.getState();
@@ -189,7 +200,7 @@ export default function BatchConsole() {
                 <select 
                   className="select" 
                   value={selectedPrinter}
-                  onChange={e => setSelectedPrinter(e.target.value)}
+                  onChange={e => handlePrinterChange(e.target.value)}
                   style={{ flex: 1, height: 36 }}
                 >
                   {printers.map(p => <option key={p} value={p}>{p}</option>)}
@@ -221,13 +232,24 @@ export default function BatchConsole() {
               <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
                   <input type="radio" checked={printMode === 'pdf'} onChange={() => setPrintMode('pdf')} />
-                  HD Graphics (PDF, Robust)
+                  <div>
+                    <div style={{ fontWeight: 500 }}>Universal (All Printers)</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>PDF → Image render — works with inkjet, laser, and thermal printers</div>
+                  </div>
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
                   <input type="radio" checked={printMode === 'zpl'} onChange={() => setPrintMode('zpl')} />
-                  Native ZPL (Faster, Thermal Label Printers)
+                  <div>
+                    <div style={{ fontWeight: 500 }}>Native Commands {isNativePrinter(selectedPrinter) ? '✓' : ''}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>ZPL/TSPL — Toshiba, TSC, Zebra thermal printers only</div>
+                  </div>
                 </label>
               </div>
+              {printMode === 'zpl' && !isNativePrinter(selectedPrinter) && (
+                <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', fontSize: 11, color: 'var(--accent-warning, #d97706)' }}>
+                  ⚠️ Native mode may not work with <strong>{selectedPrinter}</strong>. Switch to <strong>Universal</strong> mode for this printer.
+                </div>
+              )}
             </div>
           </div>
 
