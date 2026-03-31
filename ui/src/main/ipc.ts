@@ -426,10 +426,19 @@ export function registerIpcHandlers(): void {
     const printerName = printer || '';
     return new Promise((resolve, reject) => {
       if (process.platform === 'win32') {
-        // /e opens Printing Preferences (where speed/darkness usually are)
-        // /p opens Printer Properties (general settings)
-        exec(`rundll32 printui.dll,PrintUIEntry /e /n "${printerName}"`, (err: any) => {
-          if (err) reject(err); else resolve({ ok: true });
+        // Many thermal drivers (like Seagull / TSC) fail to launch /e (Printing Preferences) 
+        // from a non-Explorer process like Electron due to missing DLL context.
+        // /p (Printer Properties) is universally reliable and contains a "Preferences" button inside it.
+        exec(`rundll32 printui.dll,PrintUIEntry /p /n "${printerName}"`, (err: any) => {
+          if (err) {
+            console.error('Failed to open Printer Properties:', err);
+            // Fallback to /e just in case /p was blocked
+            exec(`rundll32 printui.dll,PrintUIEntry /e /n "${printerName}"`, (err2: any) => {
+              if (err2) reject(err2); else resolve({ ok: true });
+            });
+          } else {
+            resolve({ ok: true });
+          }
         });
       } else if (process.platform === 'darwin') {
         exec('open /System/Library/PreferencePanes/PrintAndScan.prefPane', (err: any) => {

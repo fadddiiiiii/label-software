@@ -42,8 +42,13 @@ export default function BatchConsole() {
     const s = useSettingsStore.getState();
     invokeIPC<string[]>('printers:list').then(list => {
       setPrinters(list);
+      let initialPrinter = list.length > 0 ? list[0] : '';
       if (s.defaultPrinter && s.defaultPrinter !== 'System Default' && list.includes(s.defaultPrinter)) {
-        setSelectedPrinter(s.defaultPrinter);
+        initialPrinter = s.defaultPrinter;
+      }
+      if (initialPrinter) {
+        setSelectedPrinter(initialPrinter);
+        setPrintMode(isNativePrinter(initialPrinter) ? 'zpl' : 'pdf');
       }
     }).catch(() => {});
     if (s.copiesPerLabel > 0) setCopiesPerLabel(s.copiesPerLabel);

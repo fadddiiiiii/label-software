@@ -51,12 +51,6 @@ export default function SplashScreen({ onFinish }: SplashScreenProps) {
         }}>
           OMG
         </h1>
-        <p style={{
-          fontFamily: "'Poppins', sans-serif", fontWeight: 400, fontSize: 14,
-          color: 'rgba(255,255,255,0.9)', letterSpacing: '0.15em', textTransform: 'uppercase',
-        }}>
-          Professional Label Design Studio
-        </p>
 
         {/* Loading Phase */}
         <span style={{
