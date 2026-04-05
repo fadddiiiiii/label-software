@@ -100,13 +100,23 @@ class BindingResolver:
                 continue
 
             if isinstance(binding, DateBinding):
-                result[binding.field_id] = datetime.now().strftime(
-                    binding.format_str)
+                try:
+                    result[binding.field_id] = datetime.now().strftime(
+                        binding.format_str)
+                except (ValueError, KeyError):
+                    # Fallback: the format_str may still be in JS format (e.g. YYYY-MM-DD)
+                    # or otherwise invalid — use ISO date as safe fallback
+                    logger.warning(f"Invalid date format_str '{binding.format_str}', using ISO fallback")
+                    result[binding.field_id] = datetime.now().strftime("%Y-%m-%d")
                 continue
 
             if isinstance(binding, TimeBinding):
-                result[binding.field_id] = datetime.now().strftime(
-                    binding.format_str)
+                try:
+                    result[binding.field_id] = datetime.now().strftime(
+                        binding.format_str)
+                except (ValueError, KeyError):
+                    logger.warning(f"Invalid time format_str '{binding.format_str}', using ISO fallback")
+                    result[binding.field_id] = datetime.now().strftime("%H:%M:%S")
                 continue
 
             # Standard database binding
