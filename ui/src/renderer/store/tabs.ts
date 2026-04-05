@@ -8,6 +8,7 @@ import type { Tab, TabId, TabsState, TabMeta, OpenTabSource } from '../types/tab
 import { DEFAULT_LABEL_CONFIG, DEFAULT_SHEET_LAYOUT, LabelConfig, LabelElement } from '../types/template';
 import { useSettingsStore } from './settings';
 import { addRecentFile } from '../lib/recentFiles';
+import { extractBindingsFromElements } from '../lib/restoreBindings';
 
 const MAX_TABS = 20;
 
@@ -86,6 +87,65 @@ export const useTabsStore = create<TabsState>()(
                 activeSourceId: doc.active_source_id ?? null,
                 currentPreviewRow: doc.current_row_index ?? 0,
               });
+
+              // ── Restore bindings from saved element objects into the DataStore ──
+              // The .lft file embeds binding info (binding, serial_binding,
+              // date_binding, time_binding, keyboard_binding) on each element.
+              // We need to reconstruct DataStore.bindings from these so that
+              // toDocument() can find them again at print time.
+              try {
+                const rawElements = doc.elements ?? [];
+                const { bindings, serialConfigs } = extractBindingsFromElements(rawElements);
+                if (bindings.length > 0 || Object.keys(serialConfigs).length > 0) {
+                  // Lazy-import to avoid circular dependency
+                  const { useDataStore } = await import('./data');
+                  const ds = useDataStore.getState();
+                  
+                  // Merge restored bindings (don't overwrite existing ones from other documents)
+                  for (const b of bindings) {
+                    const existing = ds.bindings.find(x => x.fieldId === b.fieldId);
+                    if (!existing) {
+                      ds.addBinding(b);
+                    }
+                  }
+                  
+                  // Merge serial configs
+                  for (const [id, cfg] of Object.entries(serialConfigs)) {
+                    if (!ds.serialConfigs[id]) {
+                      ds.setSerialConfig(id, cfg);
+                    }
+                  }
+                  
+                  // Restore data sources references
+                  if (doc.data_sources && doc.data_sources.length > 0) {
+                    for (const src of doc.data_sources) {
+                      const exists = ds.sources.find(s => s.id === src.id);
+                      if (!exists && src.path) {
+                        // Add a placeholder source (user will need to refresh/reload)
+                        ds.addSource({
+                          id: src.id,
+                          type: src.type || 'csv',
+                          path: src.path,
+                          name: src.name || src.path.split(/[/\\]/).pop() || 'Data',
+                          columns: [],
+                          rowCount: 0,
+                          rows: [],
+                        }, { isReload: true });
+                      }
+                    }
+                    
+                    // Set active source if specified
+                    if (doc.active_source_id) {
+                      ds.setActiveSource(doc.active_source_id);
+                    }
+                  }
+                  
+                  console.log(`[Tabs] Restored ${bindings.length} bindings and ${Object.keys(serialConfigs).length} serial configs from saved file`);
+                }
+              } catch (bindErr) {
+                console.error('[Tabs] Failed to restore bindings from file:', bindErr);
+              }
+
               addRecentFile({
                 name: fileName,
                 path: source.path,

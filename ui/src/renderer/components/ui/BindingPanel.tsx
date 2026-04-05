@@ -155,7 +155,7 @@ export default function BindingPanel() {
 
           {!binding.serialId ? (
             <div style={{ background: 'var(--bg-elevated)', padding: 'var(--space-2)', borderRadius: 8, border: '1px solid var(--border-default)' }}>
-              <div className="input-row">
+              <div className="input-row" style={{ marginBottom: 8 }}>
                 <div>
                   <label className="input-label">Start Value</label>
                   <input type="number" className="input input--compact" value={serial.start}
@@ -167,7 +167,21 @@ export default function BindingPanel() {
                     onChange={e => updateSerial({ increment: +e.target.value })} />
                 </div>
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 80 }}>
+                  <label className="input-label">Length</label>
+                  <input type="number" className="input input--compact" value={serial.digits || 5} 
+                    onChange={e => updateSerial({ digits: +e.target.value })} />
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', marginTop: 14 }}>
+                  <input type="checkbox" checked={serial.pad_left ?? true} 
+                    onChange={e => updateSerial({ pad_left: e.target.checked })} />
+                  Pad with zeros
+                </label>
+              </div>
+
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8 }}>
                 💡 Tip: Use global counters for shared numbering.
               </div>
             </div>

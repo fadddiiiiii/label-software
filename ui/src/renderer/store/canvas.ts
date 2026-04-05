@@ -377,6 +377,46 @@ export function loadTemplate(doc: TemplateDocument) {
     }
   }
 
+  // ── Restore bindings from saved element objects into the DataStore ──
+  try {
+    const { extractBindingsFromElements } = require('../lib/restoreBindings');
+    const rawElements = doc.elements ?? [];
+    const { bindings, serialConfigs } = extractBindingsFromElements(rawElements);
+    
+    for (const b of bindings) {
+      const existing = dsStore.bindings.find((x: any) => x.fieldId === b.fieldId);
+      if (!existing) {
+        dsStore.addBinding(b);
+      }
+    }
+    
+    for (const [id, cfg] of Object.entries(serialConfigs)) {
+      if (!dsStore.serialConfigs[id]) {
+        dsStore.setSerialConfig(id, cfg as any);
+      }
+    }
+    
+    // Restore data source references
+    if (doc.data_sources && doc.data_sources.length > 0) {
+      for (const src of doc.data_sources) {
+        const exists = dsStore.sources.find((s: any) => s.id === src.id);
+        if (!exists && src.path) {
+          dsStore.addSource({
+            id: src.id,
+            type: src.type || 'csv',
+            path: src.path,
+            name: src.name || src.path?.split(/[/\\]/).pop() || 'Data',
+            columns: [],
+            rowCount: 0,
+            rows: [],
+          }, { isReload: true });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[loadTemplate] Failed to restore bindings:', err);
+  }
+
   useTabsStore.setState(s => {
     const t = s.tabs.find(tt => tt.id === tabId);
     if (t) {
@@ -470,15 +510,23 @@ export function toDocument(): TemplateDocument {
 
       if (b.type === 'serial') {
         const cfgId = b.serialId || e.id;
-        const cfg = ds.serialConfigs[cfgId] || ds.serialConfigs[e.id] || { start: 1, increment: 1, current_value: 1 };
+        // Check all possible config sources:
+        // 1. Global serial configs by serialId
+        // 2. Global serial configs by element id
+        // 3. Local serial config stored on the binding itself
+        // 4. Fallback defaults
+        const cfg = ds.serialConfigs[cfgId]
+          || ds.serialConfigs[e.id]
+          || b.serialConfig
+          || { start: 1, increment: 1, current_value: 1, pad_left: false, digits: 0, step_type: 'increase' as const, prefix: '', suffix: '' };
         return {
           ...baseElem,
           serial_binding: {
             field_id: e.id,
             source_type: 'serial',
-            start_value: cfg.current_value,
+            start_value: cfg.current_value ?? cfg.start ?? 1,
             increment: (cfg.increment || 1) * (cfg.step_type === 'decrease' ? -1 : 1),
-            pad_to_length: cfg.pad_left ? cfg.digits : 0,
+            pad_to_length: cfg.pad_left ? (cfg.digits || 0) : 0,
             prefix: cfg.prefix || '',
             suffix: cfg.suffix || ''
           }

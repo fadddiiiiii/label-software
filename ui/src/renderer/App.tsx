@@ -10,6 +10,7 @@ import { TabBar } from './components/tabs/TabBar';
 import { useDataStore } from './store/data';
 
 // Screens
+import AuthScreen from './components/auth/AuthScreen';
 import SplashScreen from './components/splash/SplashScreen';
 import HomePage from './components/home/HomePage';
 
@@ -54,16 +55,33 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-type AppView = 'splash' | 'home' | 'designer';
+type AppView = 'checking' | 'auth' | 'splash' | 'home' | 'designer';
 
 export default function App() {
-  const [view, setView] = useState<AppView>('splash');
+  const [view, setView] = useState<AppView>('checking');
   const theme = useSettingsStore(s => s.theme);
   const startupBehaviour = useSettingsStore(s => s.startupBehaviour);
   const isDataHydrated = useDataStore(s => s.isHydrated);
   const reloadSources = useDataStore(s => s.reloadSources);
   const activeTabId = useTabsStore(s => s.activeId);
   const tabs = useTabsStore(s => s.tabs);
+
+  // ── First-time activation gate ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const result = await invokeIPC('app:check-activation');
+        if (result?.activated) {
+          setView('splash');
+        } else {
+          setView('auth');
+        }
+      } catch {
+        // If IPC fails (e.g. during dev), skip auth
+        setView('splash');
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (isDataHydrated) {
@@ -115,6 +133,12 @@ export default function App() {
   }, []);
   const handleGoHome = useCallback(() => setView('home'), []);
 
+  if (view === 'checking') return (
+    <div style={{ position: 'fixed', inset: 0, background: '#0a0a0f', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Checking activation…</div>
+    </div>
+  );
+  if (view === 'auth') return <AuthScreen onActivated={() => setView('splash')} />;
   if (view === 'splash') return <SplashScreen onFinish={handleSplashFinish} />;
   if (view === 'home') return <HomePage onOpenDesigner={handleOpenDesigner} />;
 

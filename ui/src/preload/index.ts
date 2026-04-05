@@ -8,7 +8,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 const ALLOWED_CHANNELS = [
   'app:version',
-  'app:python-status',
+  'app:check-activation',
+  'app:activate',
   'barcode:render',
   'qr:render',
   'template:save',

@@ -154,6 +154,7 @@ export interface LabelElement {
 export interface DataSourceRef {
   id: string;
   type: 'csv' | 'excel' | 'sql';
+  name?: string;
   path?: string;
   connection_str?: string;
   query?: string;

@@ -64,6 +64,40 @@ export function registerIpcHandlers(): void {
     }
   });
 
+  // ── First-Time Activation ───────────────────────────────────
+  const getActivationPath = () => path.join(app.getPath('userData'), '.sys_activation_db');
+
+  ipcMain.handle('app:check-activation', async () => {
+    try {
+      const filePath = getActivationPath();
+      await fs.access(filePath);
+      return { activated: true };
+    } catch {
+      return { activated: false };
+    }
+  });
+
+  ipcMain.handle('app:activate', async (_event, { password }: { password: string }) => {
+    // The password validation happens in the renderer for simplicity,
+    // but we also validate here as a second layer of protection.
+    const VALID_PASSWORD = 'OMG2026';
+    if (password !== VALID_PASSWORD) {
+      return { ok: false, error: 'Invalid password' };
+    }
+    try {
+      const filePath = getActivationPath();
+      const payload = JSON.stringify({
+        activated_at: new Date().toISOString(),
+        machine: require('os').hostname(),
+        version: app.getVersion(),
+      }, null, 2);
+      await fs.writeFile(filePath, payload, 'utf-8');
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // ── Application Updates ─────────────────────────────────────
   ipcMain.handle('app:check-updates', async () => {
     return checkForUpdates();
