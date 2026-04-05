@@ -18,7 +18,7 @@ const pending = new Map<string, {
   timer: NodeJS.Timeout;
 }>();
 
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 3_600_000; // 1 hour — batch jobs with 1000+ labels need time
 let lastStderr = '';
 
 /**

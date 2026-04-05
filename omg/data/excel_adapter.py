@@ -45,6 +45,8 @@ class ExcelAdapter(AbstractAdapter):
                 
                 header_row = self._xlrd_ws.row_values(0)
                 self._row_count = self._xlrd_ws.nrows - 1
+            except FileNotFoundError:
+                raise FileNotFoundError(f"Data Source Error: The file '{self.path}' has been moved or deleted. Please re-import your data.")
             except ImportError:
                 logger.error("xlrd not installed. Required for .xls files.")
                 raise ValueError("Support for .xls requires 'xlrd' package. Please install it.")
@@ -97,6 +99,8 @@ class ExcelAdapter(AbstractAdapter):
                 
                 self._row_count = len(self._data_cache)
                 return # Skip redundant header logic below
+            except FileNotFoundError:
+                raise FileNotFoundError(f"Data Source Error: The file '{self.path}' has been moved or deleted. Please re-import your data.")
             except Exception as e:
                 logger.error(f"Failed to load .xlsx workbook {self.path}: {e}")
                 raise ValueError(f"Could not open .xlsx file: {e}")

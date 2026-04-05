@@ -330,8 +330,15 @@ class RowRenderer:
         start_fs = float(elem.font_size) * 0.75
         
         base_font = elem.font_name or "Helvetica"
-        is_bold = getattr(elem, 'font_bold', False)
-        is_italic = getattr(elem, 'font_italic', False)
+        # Check multiple field names — frontend sends font_bold, bold, and/or font_weight
+        is_bold = getattr(elem, 'font_bold', False) or getattr(elem, 'bold', False)
+        if not is_bold:
+            fw = getattr(elem, 'font_weight', 'normal')
+            try:
+                is_bold = int(fw) >= 600
+            except (ValueError, TypeError):
+                is_bold = str(fw).lower() == 'bold'
+        is_italic = getattr(elem, 'font_italic', False) or getattr(elem, 'italic', False)
         suffix = ""
         if is_bold and is_italic: suffix = "-BoldOblique"
         elif is_bold: suffix = "-Bold"
@@ -356,7 +363,7 @@ class RowRenderer:
             fontSize=start_fs,
             textColor=_hex_to_color(text_fill_hex),
             alignment=align_code,
-            leading=start_fs * 1.2,
+            leading=start_fs,
         )
 
         p_text = escape(text_val).replace("\n", "<br/>")
@@ -396,22 +403,38 @@ class RowRenderer:
             show_text = getattr(elem, 'show_text', True) and elem.type == 'barcode'
             text_on_top = getattr(elem, 'text_on_top', False)
 
+            # ── Text font size — must match frontend ElementShape.tsx ──
+            # Frontend: textFontSize = Math.max(6, (elem.text_font_size_mm || 2.5) * MM_TO_PX * zoom)
+            # MM_TO_PX = 96/25.4 ≈ 3.78.  To get PDF pt we multiply mm by 72/25.4 ≈ 2.835
             text_fs_mm = getattr(elem, 'text_font_size_mm', 2.5)
             text_font_size_pt = max(6.0, mm_to_pt(text_fs_mm))
 
+            # ── Bar / text height split — must match frontend ──
+            # Frontend: barH = showHumanText ? Math.max(h * 0.1, h - textFontSize - 2 * zoom) : h
+            # At zoom=1, 2*zoom = 2px.  2 CSS px * (72/96) = 1.5pt
+            # Use the user-configurable barcode_text_margin_mm if set
+            text_margin_mm = getattr(elem, 'barcode_text_margin_mm', 0)
+            if text_margin_mm and text_margin_mm != 0:
+                text_margin_pt = mm_to_pt(abs(text_margin_mm))
+            else:
+                text_margin_pt = 1.5  # default: matches 2px at 72/96 ratio
+
             if show_text:
-                react_margin_pt = 1.5 
-                bar_h_pt = max(h_pt * 0.1, h_pt - text_font_size_pt - react_margin_pt)
+                bar_h_pt = max(h_pt * 0.1, h_pt - text_font_size_pt - text_margin_pt)
                 text_h_pt = h_pt - bar_h_pt
             else:
                 bar_h_pt = h_pt
                 text_h_pt = 0
 
-            barcode_str = str(value) if str(value) else ("https://omg.com" if sym == "qrcode" else "12345678")
+            barcode_str = str(value) if value and str(value).strip() else ("https://omg.com" if sym == "qrcode" else "12345678")
 
-            drawing = BarcodeRenderer.render_reportlab_drawing(
-                sym, barcode_str, elem.width_mm, pt_to_mm(bar_h_pt), show_text=False
-            )
+            drawing = None
+            try:
+                drawing = BarcodeRenderer.render_reportlab_drawing(
+                    sym, barcode_str, elem.width_mm, pt_to_mm(bar_h_pt), show_text=False
+                )
+            except Exception as bc_err:
+                logger.warning(f"Barcode generation failed for '{barcode_str}': {bc_err}")
 
             if drawing:
                 dw = drawing.width if drawing.width > 0 else 1
@@ -423,17 +446,31 @@ class RowRenderer:
                     sx = sy = min(sx, sy)
 
                 c.saveState()
+                # Frontend: <Group y={showHumanText && elem.text_on_top ? textH : 0}>
                 bars_baseline_y = y_pt + (text_h_pt if not text_on_top and show_text else 0)
                 tx = x_pt + (w_pt - dw * sx) / 2
                 c.translate(tx, bars_baseline_y)
                 c.scale(sx, sy)
                 renderPDF.draw(drawing, c, 0, 0)
                 c.restoreState()
+            else:
+                # If barcode generation failed, draw an empty dashed box instead of "Render Error"
+                c.saveState()
+                c.setStrokeColor(colors.grey)
+                c.setDash(2, 2)
+                c.rect(x_pt, y_pt, w_pt, h_pt, fill=0, stroke=1)
+                c.restoreState()
 
             if show_text:
                 c.saveState()
-                base_font = getattr(elem, 'text_font_name', "Helvetica")
-                if base_font.lower() == "inter": base_font = "Helvetica"
+                # ── Font setup — must match frontend ElementShape ──
+                base_font = getattr(elem, 'text_font_name', "Helvetica") or "Helvetica"
+
+                # Validate base font exists in ReportLab; fallback to Helvetica
+                from reportlab.pdfbase import pdfmetrics
+                if base_font not in pdfmetrics.standardFonts and base_font not in pdfmetrics.getRegisteredFontNames():
+                    base_font = "Helvetica"
+
                 is_bold = getattr(elem, 'text_font_bold', False)
                 is_italic = getattr(elem, 'text_font_italic', False)
                 suffix = ""
@@ -442,12 +479,27 @@ class RowRenderer:
                 elif is_italic: suffix = "-Oblique"
                 font_name = base_font + suffix
 
+                # Validate full font name (with suffix), fallback to Helvetica family
+                if font_name not in pdfmetrics.standardFonts and font_name not in pdfmetrics.getRegisteredFontNames():
+                    font_name = "Helvetica"
+                    if is_bold and is_italic: font_name += "-BoldOblique"
+                    elif is_bold: font_name += "-Bold"
+                    elif is_italic: font_name += "-Oblique"
+
                 c.setFont(font_name, text_font_size_pt)
-                color_hex = getattr(elem, 'barcode_color', getattr(elem, 'color', "#000000"))
+                color_hex = getattr(elem, 'color', "#000000")
                 c.setFillColor(_hex_to_color(color_hex))
 
-                text_block_y = y_pt + (bar_h_pt if text_on_top else 0)
-                ty = text_block_y + text_h_pt / 2.0 - (text_font_size_pt * 0.35)
+                # ── Text Y position — match frontend verticalAlign="middle" ──
+                # Frontend: <Group y={elem.text_on_top ? 0 : barH}>
+                # The text block sits either above or below the barcode area
+                if text_on_top:
+                    text_block_y = y_pt + bar_h_pt  # PDF y increases upward
+                else:
+                    text_block_y = y_pt
+
+                # Center text vertically within text_h_pt
+                ty = text_block_y + (text_h_pt - text_font_size_pt) / 2.0
 
                 anchor = getattr(elem, 'text_anchor', 'center')
                 if anchor == 'left': 
@@ -455,12 +507,12 @@ class RowRenderer:
                 elif anchor == 'right': 
                     c.drawRightString(x_pt + w_pt, ty, barcode_str)
                 else: 
-                    c.drawCentredString(x_pt + w_pt/2, ty, barcode_str)
+                    c.drawCentredString(x_pt + w_pt / 2, ty, barcode_str)
                 c.restoreState()
 
         except Exception as e:
             logger.error(f"Barcode draw error: {e}")
-            self._draw_error_placeholder(c, elem, "Render Error")
+            self._draw_error_placeholder(c, elem, f"Barcode Error")
 
 
     def _draw_image(self, c, elem, value):

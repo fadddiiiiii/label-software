@@ -673,6 +673,7 @@ export default function LabelCanvas() {
                       updateElementRealtime(id, updates);
                     }}
                     snapEnabled={snapEnabled}
+                    gridSizeMm={gridSizeMm}
                   />
                 ))}
               </Group>

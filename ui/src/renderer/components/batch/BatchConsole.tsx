@@ -8,15 +8,15 @@ import { useSettingsStore } from '../../store/settings';
 import { invokeIPC } from '../../hooks/useIPC';
 
 export default function BatchConsole() {
-  const { 
+  const {
     printers, selectedPrinter, setSelectedPrinter, setPrinters,
-    copiesPerLabel, setCopiesPerLabel, 
+    copiesPerLabel, setCopiesPerLabel,
     printRange, setPrintRange, customRange, setCustomRange,
     progress, setProgress, resetProgress,
     showBatchConsole, setShowBatchConsole, setShowKeyboardInput,
     showKeyboardInput, keyboardValues
   } = usePrintStore();
-  
+
   const { sources, bindings, activeSourceId } = useDataStore();
   const { toDocument } = useCanvasStoreCompat();
   const active = sources.find(s => s.id === activeSourceId);
@@ -24,12 +24,12 @@ export default function BatchConsole() {
   // Track whether we're waiting for keyboard input to complete
   const [pendingKeyboard, setPendingKeyboard] = useState(false);
 
-  const [printMode, setPrintMode] = useState<'pdf'|'zpl'>('pdf');
+  const [printMode, setPrintMode] = useState<'pdf' | 'zpl'>('pdf');
 
   // Auto-detect best mode when printer changes
   const isNativePrinter = (name: string) => {
     const u = name.toUpperCase();
-    return ['TOSHIBA','TSC','B-FV','B-EV','B-SA','B-EX','ZEBRA','ZD','ZT','GK','GX','ZPL'].some(kw => u.includes(kw));
+    return ['TOSHIBA', 'TSC', 'B-FV', 'B-EV', 'B-SA', 'B-EX', 'ZEBRA', 'ZD', 'ZT', 'GK', 'GX', 'ZPL'].some(kw => u.includes(kw));
   };
 
   const handlePrinterChange = (name: string) => {
@@ -50,7 +50,7 @@ export default function BatchConsole() {
         setSelectedPrinter(initialPrinter);
         setPrintMode(isNativePrinter(initialPrinter) ? 'zpl' : 'pdf');
       }
-    }).catch(() => {});
+    }).catch(() => { });
     if (s.copiesPerLabel > 0) setCopiesPerLabel(s.copiesPerLabel);
   }, []);
 
@@ -137,10 +137,10 @@ export default function BatchConsole() {
     const activeTab = useTabsStore.getState().getActive();
     const path = await invokeIPC<string | null>('pdf:save-dialog', { filename: activeTab?.name || 'labels' });
     if (!path) return;
-    
+
     resetProgress();
     setProgress({ status: 'running', totalRows: totalToPrint });
-    
+
     try {
       const result = await invokeIPC('batch:start', {
         template: toDocument(),
@@ -196,8 +196,8 @@ export default function BatchConsole() {
         display: 'flex', flexDirection: 'column'
       }}>
         {/* Header */}
-        <div style={{ 
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)'
         }}>
           <div>
@@ -206,8 +206,8 @@ export default function BatchConsole() {
               {active ? `Bound to ${active.path.split('/').pop()} (${maxRows} rows)` : 'No data source connected. Will print 1 blank label.'}
             </div>
           </div>
-          <button 
-            className="btn btn--ghost btn--icon" 
+          <button
+            className="btn btn--ghost btn--icon"
             onClick={() => setShowBatchConsole(false)}
             style={{ width: 32, height: 32, borderRadius: '50%' }}
           >✕</button>
@@ -215,21 +215,21 @@ export default function BatchConsole() {
 
         {/* Body */}
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          
+
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
             {/* Printer Selection */}
             <div>
               <label className="input-label" style={{ marginBottom: 6, display: 'block' }}>Target Printer</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <select 
-                  className="select" 
+                <select
+                  className="select"
                   value={selectedPrinter}
                   onChange={e => handlePrinterChange(e.target.value)}
                   style={{ flex: 1, height: 36 }}
                 >
                   {printers.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
-                <button 
+                <button
                   className="btn btn--secondary"
                   onClick={() => invokeIPC('printer:openPreferences', { printer: selectedPrinter })}
                   style={{ height: 36, padding: '0 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
@@ -243,13 +243,13 @@ export default function BatchConsole() {
             {/* Copies per label */}
             <div>
               <label className="input-label" style={{ marginBottom: 6, display: 'block' }}>Copies per label</label>
-              <input 
+              <input
                 type="number" className="input" value={copiesPerLabel}
-                onChange={e => setCopiesPerLabel(+e.target.value)} min={1} max={999} 
+                onChange={e => setCopiesPerLabel(+e.target.value)} min={1} max={999}
                 style={{ width: '100%', height: 36 }}
               />
             </div>
-            
+
             {/* Print Engine Toggle */}
             <div style={{ gridColumn: '1 / -1', marginTop: '4px' }}>
               <label className="input-label" style={{ marginBottom: 6, display: 'block' }}>Print Engine</label>
@@ -265,7 +265,7 @@ export default function BatchConsole() {
                   <input type="radio" checked={printMode === 'zpl'} onChange={() => setPrintMode('zpl')} />
                   <div>
                     <div style={{ fontWeight: 500 }}>Native Commands {isNativePrinter(selectedPrinter) ? '✓' : ''}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>ZPL/TSPL — Toshiba, TSC, Zebra thermal printers only</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>For Thermal Printers</div>
                   </div>
                 </label>
               </div>
@@ -283,32 +283,32 @@ export default function BatchConsole() {
               <label className="input-label" style={{ marginBottom: 8, display: 'block' }}>Print Range</label>
               <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                  <input 
-                    type="radio" name="printRange" 
-                    checked={printRange === 'all'} 
-                    onChange={() => setPrintRange('all')} 
+                  <input
+                    type="radio" name="printRange"
+                    checked={printRange === 'all'}
+                    onChange={() => setPrintRange('all')}
                   />
                   All Rows ({maxRows})
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                  <input 
-                    type="radio" name="printRange" 
-                    checked={printRange === 'custom'} 
-                    onChange={() => setPrintRange('custom')} 
+                  <input
+                    type="radio" name="printRange"
+                    checked={printRange === 'custom'}
+                    onChange={() => setPrintRange('custom')}
                   />
                   Custom Range
                 </label>
 
                 {printRange === 'custom' && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-                    <input 
+                    <input
                       type="number" className="input" value={customRange.start}
                       onChange={e => setCustomRange(+e.target.value, customRange.end)}
                       min={1} max={customRange.end}
                       style={{ width: 60, height: 28, fontSize: 13 }}
                     />
                     <span style={{ color: 'var(--text-muted)' }}>to</span>
-                    <input 
+                    <input
                       type="number" className="input" value={customRange.end}
                       onChange={e => setCustomRange(customRange.start, +e.target.value)}
                       min={customRange.start} max={maxRows}
@@ -322,8 +322,8 @@ export default function BatchConsole() {
 
           {/* Progress bar area */}
           {progress.status !== 'idle' && (
-            <div style={{ 
-              marginTop: '4px', padding: '16px', 
+            <div style={{
+              marginTop: '4px', padding: '16px',
               background: 'var(--bg-secondary)', borderRadius: '8px',
               border: '1px solid var(--border-subtle)'
             }}>
@@ -332,7 +332,7 @@ export default function BatchConsole() {
                   {progress.status.toUpperCase()}
                 </span>
                 <span style={{ color: 'var(--text-secondary)' }}>
-                  {progress.status === 'done' && selectedPrinter !== 'PDF' 
+                  {progress.status === 'done' && selectedPrinter !== 'PDF'
                     ? `Successfully sent ${progress.totalRows} labels to ${selectedPrinter}`
                     : `${progress.completedRows} of ${progress.totalRows} labels ${progress.status === 'done' ? 'rendered' : 'rendering'} (${percent}%)`
                   }
@@ -347,20 +347,20 @@ export default function BatchConsole() {
                   width: `${percent}%`,
                   background: progress.status === 'failed' ? 'var(--accent-error)'
                     : progress.status === 'done' ? 'var(--accent-success)'
-                    : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                      : 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
                   transition: 'width 0.3s ease',
                 }} />
               </div>
 
               {progress.status === 'done' && selectedPrinter !== 'PDF' && (
-                <div style={{ 
+                <div style={{
                   marginTop: 12, padding: '8px 12px', borderRadius: '6px',
                   background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)',
                   fontSize: '11px', color: 'var(--text-secondary)', display: 'flex', gap: '8px', alignItems: 'center'
                 }}>
                   <span style={{ fontSize: '14px' }}>ℹ️</span>
                   <span>
-                    Your labels are now in the <strong>{selectedPrinter}</strong> system queue. 
+                    Your labels are now in the <strong>{selectedPrinter}</strong> system queue.
                     If they don't print, please check your OS "Devices and Printers" settings.
                   </span>
                 </div>
@@ -379,16 +379,16 @@ export default function BatchConsole() {
         </div>
 
         {/* Footer Actions */}
-        <div style={{ 
-          padding: '16px 24px', background: 'var(--bg-secondary)', 
+        <div style={{
+          padding: '16px 24px', background: 'var(--bg-secondary)',
           borderTop: '1px solid var(--border-subtle)',
           display: 'flex', justifyContent: 'flex-end', gap: '12px'
         }}>
           <button className="btn" onClick={exportPdf} disabled={progress.status === 'running'}>
             Export as PDF
           </button>
-          <button 
-            className="btn btn--primary" 
+          <button
+            className="btn btn--primary"
             onClick={handlePrint}
             disabled={progress.status === 'running'}
             style={{ padding: '0 24px' }}

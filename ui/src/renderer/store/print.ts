@@ -103,7 +103,7 @@ export const usePrintStore = create<PrintState>((set) => ({
   resetProgress: () => set({ progress: { ...defaultProgress } }),
   addLogEntry: (entry) => set(s => ({ printLog: [...s.printLog, entry] })),
   clearLog: () => set({ printLog: [] }),
-  setShowBatchConsole: (show) => set({ showBatchConsole: show }),
+  setShowBatchConsole: (show) => set(show ? { showBatchConsole: true, progress: { ...defaultProgress } } : { showBatchConsole: false }),
   setShowPrintSettings: (show) => set({ showPrintSettings: show }),
   setShowPrintPreview: (show) => set({ showPrintPreview: show }),
   setShowKeyboardInput: (show) => set({ showKeyboardInput: show }),

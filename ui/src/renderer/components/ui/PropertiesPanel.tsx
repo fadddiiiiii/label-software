@@ -18,6 +18,11 @@ const FONTS = [
   'Nunito', 'Open Sans', 'Oswald', 'Poppins', 'Raleway', 'Roboto'
 ];
 
+// Fonts that ReportLab can render natively for barcode text (no registration needed)
+const BARCODE_FONTS = [
+  'Helvetica', 'Courier', 'Times-Roman'
+];
+
 const WEIGHTS = [
   { label: 'Thin (100)', value: '100' }, { label: 'Extra Light (200)', value: '200' },
   { label: 'Light (300)', value: '300' }, { label: 'Normal (400)', value: '400' },
@@ -529,41 +534,46 @@ export default function PropertiesPanel() {
                   <option value="gs1_128">GS1-128</option>
                 </select>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={elem.show_text} onChange={e => update({ show_text: e.target.checked })} />
-                  Show Text
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={elem.text_on_top} onChange={e => update({ text_on_top: e.target.checked })} />
-                  Text on Top
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={elem.auto_font_scale} onChange={e => update({ auto_font_scale: e.target.checked })} />
-                  Auto Scale
-                </label>
-              </div>
-              {!elem.auto_font_scale && (
-                <div>
-                  <label className="input-label">Text Font Size (mm)</label>
-                  <input type="number" className="input input--compact" value={elem.text_font_size_mm ?? 2.5}
-                    onChange={e => update({ text_font_size_mm: +e.target.value })} min={0.5} step={0.25} />
-                </div>
+              {(elem.type !== 'qrcode' && !['qrcode', 'datamatrix', 'pdf417'].includes(elem.symbology || '')) && (
+                <>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={elem.show_text} onChange={e => update({ show_text: e.target.checked })} />
+                      Show Text
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={elem.text_on_top} onChange={e => update({ text_on_top: e.target.checked })} />
+                      Text on Top
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={elem.auto_font_scale} onChange={e => update({ auto_font_scale: e.target.checked })} />
+                      Auto Scale
+                    </label>
+                  </div>
+                  {!elem.auto_font_scale && (
+                    <div>
+                      <label className="input-label">Text Font Size (mm)</label>
+                      <input type="number" className="input input--compact" value={elem.text_font_size_mm ?? 2.5}
+                        onChange={e => update({ text_font_size_mm: +e.target.value })} min={0.5} step={0.25} />
+                    </div>
+                  )}
+                  <div className="input-row">
+                    <div>
+                      <label className="input-label">Text Font</label>
+                      <select className="select" value={elem.text_font_name || 'Helvetica'} onChange={e => update({ text_font_name: e.target.value })}>
+                        {BARCODE_FONTS.map(f => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="input-label">Text Align</label>
+                      <select className="select" value={elem.text_anchor || 'center'} onChange={e => update({ text_anchor: e.target.value })}>
+                        <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
               )}
-              <div className="input-row">
-                <div>
-                  <label className="input-label">Text Font</label>
-                  <select className="select" value={elem.text_font_name || 'Helvetica'} onChange={e => update({ text_font_name: e.target.value })}>
-                    {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="input-label">Text Align</label>
-                  <select className="select" value={elem.text_anchor || 'center'} onChange={e => update({ text_anchor: e.target.value })}>
-                    <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
-                  </select>
-                </div>
-              </div>
+
               <div className="input-row">
                 <div>
                   <label className="input-label">Rotation</label>
@@ -572,11 +582,13 @@ export default function PropertiesPanel() {
                     <option value={180}>180°</option><option value={270}>270°</option>
                   </select>
                 </div>
-                <div>
-                  <label className="input-label">Text Margin (mm)</label>
-                  <input type="number" className="input input--compact" value={elem.barcode_text_margin_mm ?? 1.0}
-                    onChange={e => update({ barcode_text_margin_mm: +e.target.value })} min={-10} max={20} step={0.5} />
-                </div>
+                {(elem.type !== 'qrcode' && !['qrcode', 'datamatrix', 'pdf417'].includes(elem.symbology || '')) ? (
+                  <div>
+                    <label className="input-label">Text Margin (mm)</label>
+                    <input type="number" className="input input--compact" value={elem.barcode_text_margin_mm ?? 1.0}
+                      onChange={e => update({ barcode_text_margin_mm: +e.target.value })} min={-10} max={20} step={0.5} />
+                  </div>
+                ) : <div style={{ flex: 1 }}></div>}
               </div>
               <div className="input-row">
                 <div>
@@ -587,14 +599,18 @@ export default function PropertiesPanel() {
                 <div style={{ flex: 1 }}></div>
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={elem.text_font_bold} onChange={e => update({ text_font_bold: e.target.checked })} />
-                  Bold
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={elem.text_font_italic} onChange={e => update({ text_font_italic: e.target.checked })} />
-                  Italic
-                </label>
+                {(elem.type !== 'qrcode' && !['qrcode', 'datamatrix', 'pdf417'].includes(elem.symbology || '')) && (
+                  <>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={elem.text_font_bold} onChange={e => update({ text_font_bold: e.target.checked })} />
+                      Bold
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={elem.text_font_italic} onChange={e => update({ text_font_italic: e.target.checked })} />
+                      Italic
+                    </label>
+                  </>
+                )}
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666', cursor: 'pointer' }}>
                   <input type="checkbox" checked={elem.lock_bar_size} onChange={e => update({ lock_bar_size: e.target.checked })} />
                   Lock Size

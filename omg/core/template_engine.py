@@ -132,11 +132,12 @@ class CanvasElement(BaseModel):
     font_name: str = "Helvetica"
     font_size: float = 12.0
     align: Literal["left", "center", "right"] = "left"
-    vertical_align: Literal["top", "middle", "bottom"] = "top"
+    vertical_align: Literal["top", "middle", "bottom"] = "middle"
     bold: bool = False
     italic: bool = False
     font_weight: Union[str, int] = "normal"
     font_italic: bool = False
+    font_bold: bool = False
     color: str = "#000000"
     value: str = ""
     # Styling & Advanced Text

@@ -310,6 +310,7 @@ class BarcodeRenderer:
         )
         return svg_str
 
+    @staticmethod
     def render_reportlab_drawing(symbology: str, value: str,
                                  width_mm: float, height_mm: float,
                                  show_text: bool = False):

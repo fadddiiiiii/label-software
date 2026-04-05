@@ -48,8 +48,11 @@ class CSVAdapter(AbstractAdapter):
         """Auto-detect file encoding using chardet (or BOM fallback)."""
         if self._encoding:
             return self._encoding
-        with open(self.path, "rb") as f:
-            raw = f.read(8192)
+        try:
+            with open(self.path, "rb") as f:
+                raw = f.read(8192)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Data Source Error: The file '{self.path}' has been moved or deleted. Please re-import your data.")
         detected = _detect_charset(raw)
         logger.debug(f"CSV encoding detected: {detected}")
         return detected
@@ -62,10 +65,16 @@ class CSVAdapter(AbstractAdapter):
         encoding = self._detect_encoding()
         self._encoding = encoding
 
+        try:
+            with open(self.path, "rb") as f:
+                # Detect dialect (delimiter, quoting)
+                sample = f.read(8192)
+                f.seek(0)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Data Source Error: The file '{self.path}' has been moved or deleted. Please re-import your data.")
+
         with open(self.path, "rb") as f:
-            # Detect dialect (delimiter, quoting)
-            sample = f.read(8192)
-            f.seek(0)
+            # We already advanced the file object state, so we just run the actual parsing here
 
             try:
                 dialect = csv.Sniffer().sniff(sample.decode(encoding, errors="replace"))
@@ -210,16 +219,20 @@ class CSVAdapter(AbstractAdapter):
         offset = self._row_offsets[idx]
         encoding = self._encoding or "utf-8"
         
-        with open(self.path, "rb") as f:
-            f.seek(offset)
-            line = f.readline().decode(encoding, errors="replace")
-            # Parse the single line as CSV
-            reader = csv.reader(io.StringIO(line), dialect=self._dialect)
-            values = next(reader)
-            # Ensure values match header length
-            if len(values) < len(self._header):
-                values.extend([""] * (len(self._header) - len(values)))
-            return dict(zip(self._header, values[:len(self._header)]))
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(offset)
+                line = f.readline().decode(encoding, errors="replace")
+                # Parse the single line as CSV
+                reader = csv.reader(io.StringIO(line), dialect=self._dialect)
+                values = next(reader)
+                # Ensure values match header length
+                if len(values) < len(self._header):
+                    values.extend([""] * (len(self._header) - len(values)))
+                return dict(zip(self._header, values[:len(self._header)]))
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Data Source Error: The file '{self.path}' has been moved or deleted. Please re-import your data.")
+
 
     def iter_rows(self, start: int = 0, end: Optional[int] = None) -> Generator[Dict[str, Any], None, None]:
         self._parse_header()
@@ -228,18 +241,24 @@ class CSVAdapter(AbstractAdapter):
         actual_end = end if end is not None else self._row_count
         encoding = self._encoding or "utf-8"
 
-        with open(self.path, "r", encoding=encoding, errors="replace") as f:
-            reader = csv.reader(f, dialect=self._dialect)
-            next(reader)  # Skip header
-            for i, values in enumerate(reader):
-                if i < start:
-                    continue
-                if i >= actual_end:
-                    break
-                # Skip entirely empty rows
-                if not any(v.strip() for v in values if v is not None):
-                    continue
-                yield dict(zip(self._header, values))
+        try:
+            with open(self.path, "r", encoding=encoding, errors="replace") as f:
+                reader = csv.reader(f, dialect=self._dialect)
+                next(reader)  # Skip header
+                for i, values in enumerate(reader):
+                    if i < start:
+                        continue
+                    if i >= actual_end:
+                        break
+                    # Skip entirely empty rows
+                    if not any(v.strip() for v in values if v is not None):
+                        continue
+                    # Pad missing columns
+                    if len(values) < len(self._header):
+                        values.extend([""] * (len(self._header) - len(values)))
+                    yield dict(zip(self._header, values[:len(self._header)]))
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Data Source Error: The file '{self.path}' has been moved or deleted. Please re-import your data.")
 
     def close(self) -> None:
         # No persistent handles to close for CSV

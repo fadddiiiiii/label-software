@@ -391,6 +391,50 @@ export function loadTemplate(doc: TemplateDocument) {
   });
 }
 
+/**
+ * Convert a JS-style date format string (YYYY-MM-DD, M/DD/YYYY, etc.)
+ * to a Python strftime-compatible format string (%Y-%m-%d, %-m/%d/%Y, etc.).
+ */
+function jsDateFormatToPython(fmt: string): string {
+  // Replace longest tokens first using unique control-char placeholders to avoid collisions.
+  // Step 1: Replace all known tokens with unique placeholders
+  let s = fmt;
+  s = s.replace(/YYYY/g, '\x01');     // %Y
+  s = s.replace(/YY/g, '\x02');       // %y
+  s = s.replace(/MMMM/g, '\x03');     // %B (full month name)
+  s = s.replace(/MMM/g, '\x04');      // %b (abbreviated month name)
+  s = s.replace(/MM/g, '\x05');       // %m (zero-padded month)
+  s = s.replace(/M/g, '\x06');        // %-m (unpadded month)
+  s = s.replace(/dddd/g, '\x07');     // %A (full day name)
+  s = s.replace(/DD/g, '\x0e');       // %d (zero-padded day)
+  s = s.replace(/D/g, '\x0f');        // %-d (unpadded day)
+  s = s.replace(/HH/g, '\x10');       // %H (24h zero-padded)
+  s = s.replace(/hh/g, '\x11');       // %I (12h zero-padded)
+  s = s.replace(/h/g, '\x12');        // %-I (12h unpadded)
+  s = s.replace(/mm/g, '\x14');       // %M (minutes)
+  s = s.replace(/ss/g, '\x15');       // %S (seconds)
+  s = s.replace(/A/g, '\x16');        // %p (AM/PM)
+
+  // Step 2: Resolve all placeholders to Python strftime tokens
+  s = s.replace(/\x01/g, '%Y');
+  s = s.replace(/\x02/g, '%y');
+  s = s.replace(/\x03/g, '%B');
+  s = s.replace(/\x04/g, '%b');
+  s = s.replace(/\x05/g, '%m');
+  s = s.replace(/\x06/g, '%-m');
+  s = s.replace(/\x07/g, '%A');
+  s = s.replace(/\x0e/g, '%d');
+  s = s.replace(/\x0f/g, '%-d');
+  s = s.replace(/\x10/g, '%H');
+  s = s.replace(/\x11/g, '%I');
+  s = s.replace(/\x12/g, '%-I');
+  s = s.replace(/\x14/g, '%M');
+  s = s.replace(/\x15/g, '%S');
+  s = s.replace(/\x16/g, '%p');
+
+  return s;
+}
+
 export function toDocument(): TemplateDocument {
   const tab = getActiveTab();
   const ds = useDataStore.getState();
@@ -404,6 +448,7 @@ export function toDocument(): TemplateDocument {
       const baseElem = {
         ...e,
         bold: e.font_weight === 'bold' || e.font_weight === 700,
+        font_bold: e.font_weight === 'bold' || e.font_weight === 700 || Number(e.font_weight) >= 600,
         italic: e.font_italic,
         // Ensure vertical_align is passed correctly
         vertical_align: e.vertical_align || 'middle',
@@ -441,23 +486,28 @@ export function toDocument(): TemplateDocument {
       }
 
       if (b.type === 'date') {
+        // Convert JS date format tokens to Python strftime tokens
+        const jsFmt = b.formatStr || 'YYYY-MM-DD';
+        const pyFmt = jsFmt.startsWith('%') ? jsFmt : jsDateFormatToPython(jsFmt);
         return {
           ...baseElem,
           date_binding: {
             field_id: e.id,
             source_type: 'date',
-            format_str: b.formatStr || '%Y-%m-%d'
+            format_str: pyFmt
           }
         };
       }
 
       if (b.type === 'time') {
+        const jsFmt = b.formatStr || 'HH:mm:ss';
+        const pyFmt = jsFmt.startsWith('%') ? jsFmt : jsDateFormatToPython(jsFmt);
         return {
           ...baseElem,
           time_binding: {
             field_id: e.id,
             source_type: 'time',
-            format_str: b.formatStr || '%H:%M:%S'
+            format_str: pyFmt
           }
         };
       }

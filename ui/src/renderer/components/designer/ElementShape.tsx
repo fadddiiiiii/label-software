@@ -70,6 +70,7 @@ export interface ElementShapeProps {
   onTransformStart?: (id: string) => void;
   onTransformEnd?: (id: string, updates: Partial<LabelElementType>) => void;
   snapEnabled?: boolean;
+  gridSizeMm?: number;
   rowIndex?: number;
 }
 
@@ -84,6 +85,7 @@ export function ElementShape({
   onTransformStart,
   onTransformEnd,
   snapEnabled,
+  gridSizeMm = 5,
   rowIndex,
 }: ElementShapeProps) {
   const shapeRef = useRef<any>(null);
@@ -101,6 +103,21 @@ export function ElementShape({
   const h = mmToPx(elem.height_mm, zoom);
   const x = mmToPx(elem.x_mm, zoom);
   const y = mmToPx(elem.y_mm, zoom);
+
+  const dragBoundFunc = (pos: { x: number; y: number }) => {
+    if (!snapEnabled) return pos;
+    const parent = shapeRef.current?.getParent();
+    if (parent) {
+      const transform = parent.getAbsoluteTransform().copy();
+      transform.invert();
+      const pt = transform.point(pos);
+      const snapPx = mmToPx(gridSizeMm, zoom);
+      pt.x = Math.round(pt.x / snapPx) * snapPx;
+      pt.y = Math.round(pt.y / snapPx) * snapPx;
+      return parent.getAbsoluteTransform().point(pt);
+    }
+    return pos;
+  };
 
   // Barcode loading
   useEffect(() => {
@@ -159,6 +176,7 @@ export function ElementShape({
     ref: shapeRef,
     x,
     y,
+    dragBoundFunc,
     draggable: !!onDragEnd && !elem.locked,
     rotation: elem.rotation || 0,
     onClick: () => onSelect?.(elem.id),
