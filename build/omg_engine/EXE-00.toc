@@ -68,7 +68,7 @@
  [],
  False,
  False,
- 1774966291,
+ 1775384184,
  [('run',
    '/Users/fahad/Desktop/Label '
    'Software/.venv/lib/python3.11/site-packages/PyInstaller/bootloader/Darwin-64bit/run',

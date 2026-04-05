@@ -257,15 +257,19 @@ class RowRenderer:
                 c.setFillAlpha(alpha)
                 c.setStrokeAlpha(alpha)
 
-            # 2. Global Rotation (around element center)
+            # 2. Global Rotation — Konva rotates around TOP-LEFT corner of the element
+            # In PDF coords (origin=bottom-left, Y-up), the top-left of the element
+            # is at (x_pt, y_pt + h_pt). Konva rotation is clockwise; ReportLab is
+            # counter-clockwise, so we negate the angle.
             rot = getattr(elem, 'rotation', 0.0)
             if rot != 0.0:
                 x_pt, y_pt = self._to_pdf_coords(elem)
                 w_pt, h_pt = mm_to_pt(elem.width_mm), mm_to_pt(elem.height_mm)
-                cx, cy = x_pt + w_pt / 2.0, y_pt + h_pt / 2.0
-                c.translate(cx, cy)
-                c.rotate(rot)
-                c.translate(-cx, -cy)
+                # Pivot = element's top-left in PDF coordinates
+                px, py = x_pt, y_pt + h_pt
+                c.translate(px, py)
+                c.rotate(-rot)  # negate: Konva CW → ReportLab CCW
+                c.translate(-px, -py)
 
             if elem.type == "text":
                 self._draw_text(c, elem, value)

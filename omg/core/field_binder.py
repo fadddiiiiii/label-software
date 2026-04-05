@@ -15,6 +15,7 @@ from loguru import logger
 import sys
 import traceback
 from datetime import datetime
+import platform
 
 from omg.core.formula_engine import FormulaEngine
 from omg.data.adapter import AbstractAdapter
@@ -42,6 +43,45 @@ class BindingValidationResult:
     @property
     def is_valid(self) -> bool:
         return len(self.broken) == 0
+
+
+# ── Cross-platform strftime helper ───────────────────────────────────
+
+def _safe_strftime(fmt: str) -> str:
+    """Format current datetime with cross-platform support.
+    
+    On Windows, %-m (Unix no-pad) is invalid — we must use %#m instead.
+    This function normalises the format string for the current OS.
+    """
+    now = datetime.now()
+    if platform.system() == "Windows":
+        # Convert Unix-style %-X to Windows-style %#X
+        import re
+        fmt = re.sub(r'%-([dmHIMSjU])', r'%#\1', fmt)
+    try:
+        return now.strftime(fmt)
+    except ValueError:
+        # Last resort: manual token replacement for common patterns
+        result = fmt
+        result = result.replace('%Y', str(now.year))
+        result = result.replace('%y', f'{now.year % 100:02d}')
+        result = result.replace('%m', f'{now.month:02d}')
+        result = result.replace('%-m', str(now.month))
+        result = result.replace('%#m', str(now.month))
+        result = result.replace('%d', f'{now.day:02d}')
+        result = result.replace('%-d', str(now.day))
+        result = result.replace('%#d', str(now.day))
+        result = result.replace('%H', f'{now.hour:02d}')
+        result = result.replace('%I', f'{(now.hour % 12) or 12:02d}')
+        result = result.replace('%-I', str((now.hour % 12) or 12))
+        result = result.replace('%#I', str((now.hour % 12) or 12))
+        result = result.replace('%M', f'{now.minute:02d}')
+        result = result.replace('%S', f'{now.second:02d}')
+        result = result.replace('%p', 'PM' if now.hour >= 12 else 'AM')
+        result = result.replace('%B', now.strftime('%B'))
+        result = result.replace('%b', now.strftime('%b'))
+        result = result.replace('%A', now.strftime('%A'))
+        return result
 
 
 # ── Binding Resolver ─────────────────────────────────────────────────
@@ -101,20 +141,18 @@ class BindingResolver:
 
             if isinstance(binding, DateBinding):
                 try:
-                    result[binding.field_id] = datetime.now().strftime(
+                    result[binding.field_id] = _safe_strftime(
                         binding.format_str)
-                except (ValueError, KeyError):
-                    # Fallback: the format_str may still be in JS format (e.g. YYYY-MM-DD)
-                    # or otherwise invalid — use ISO date as safe fallback
+                except Exception:
                     logger.warning(f"Invalid date format_str '{binding.format_str}', using ISO fallback")
                     result[binding.field_id] = datetime.now().strftime("%Y-%m-%d")
                 continue
 
             if isinstance(binding, TimeBinding):
                 try:
-                    result[binding.field_id] = datetime.now().strftime(
+                    result[binding.field_id] = _safe_strftime(
                         binding.format_str)
-                except (ValueError, KeyError):
+                except Exception:
                     logger.warning(f"Invalid time format_str '{binding.format_str}', using ISO fallback")
                     result[binding.field_id] = datetime.now().strftime("%H:%M:%S")
                 continue
