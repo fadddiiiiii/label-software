@@ -43,7 +43,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         try:
             # ── Attempt 1: SumatraPDF (silent, high-quality) ──────────
             try:
-                if self._try_sumatra(tmp_path, printer_name, copies):
+                if self._try_sumatra(tmp_path, printer_name, copies, label_config):
                     return True
             except Exception as e:
                 logger.debug(f"SumatraPDF not available: {e}")
@@ -72,13 +72,17 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
     # ── Tier 1: SumatraPDF ────────────────────────────────────────
 
-    def _try_sumatra(self, pdf_path: str, printer_name: str, copies: int) -> bool:
+    def _try_sumatra(self, pdf_path: str, printer_name: str, copies: int, label_config=None) -> bool:
         """Silent PDF printing via SumatraPDF (if installed)."""
+        settings = [f"{copies}x"]
+        if label_config:
+            settings.append(f"paper={label_config.width_mm}x{label_config.height_mm}mm")
+            
         result = subprocess.run(
             [
                 "SumatraPDF.exe",
                 "-print-to", printer_name,
-                "-print-settings", f"{copies}x",
+                "-print-settings", ",".join(settings),
                 "-silent",
                 pdf_path,
             ],
@@ -118,24 +122,27 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 # Call DocumentProperties twice: once to get the size, then to populate
                 size = win32print.DocumentProperties(0, hprinter, printer_name, None, None, 0)
                 if size > 0:
-                    devmode = win32print.DocumentProperties(0, hprinter, printer_name, None, None, win32con.DM_OUT_BUFFER)
+                    res, devmode = win32print.DocumentProperties(0, hprinter, printer_name, None, None, win32con.DM_OUT_BUFFER)
                     
-                    # DMPAPER_USER
-                    devmode.PaperSize = 256
-                    # DEVMODE lengths are in 1/10th of a millimeter
-                    devmode.PaperWidth = int(label_config.width_mm * 10)
-                    devmode.PaperLength = int(label_config.height_mm * 10)
-                    
-                    devmode.Orientation = 2 if label_config.width_mm > label_config.height_mm else 1
+                    if res == win32con.IDOK:
+                        # DMPAPER_USER
+                        devmode.PaperSize = 256
+                        # DEVMODE lengths are in 1/10th of a millimeter
+                        devmode.PaperWidth = int(label_config.width_mm * 10)
+                        devmode.PaperLength = int(label_config.height_mm * 10)
+                        
+                        devmode.Orientation = 2 if label_config.width_mm > label_config.height_mm else 1
 
-                    # Combine DM_PAPERSIZE, DM_PAPERLENGTH, DM_PAPERWIDTH mask
-                    devmode.Fields |= win32con.DM_PAPERSIZE | win32con.DM_PAPERLENGTH | win32con.DM_PAPERWIDTH
-                    
-                    win32print.DocumentProperties(0, hprinter, printer_name, devmode, devmode, win32con.DM_IN_BUFFER | win32con.DM_OUT_BUFFER)
-                    
-                    hdc_handle = win32gui.CreateDC("WINSPOOL", printer_name, devmode)
-                    hDC = win32ui.CreateDCFromHandle(hdc_handle)
-                    logger.info(f"GDI: Applied custom page size {label_config.width_mm}x{label_config.height_mm}mm via DEVMODE")
+                        # Combine DM_PAPERSIZE, DM_PAPERLENGTH, DM_PAPERWIDTH mask
+                        devmode.Fields |= win32con.DM_PAPERSIZE | win32con.DM_PAPERLENGTH | win32con.DM_PAPERWIDTH
+                        
+                        win32print.DocumentProperties(0, hprinter, printer_name, devmode, devmode, win32con.DM_IN_BUFFER | win32con.DM_OUT_BUFFER)
+                        
+                        hdc_handle = win32gui.CreateDC("WINSPOOL", printer_name, devmode)
+                        hDC = win32ui.CreateDCFromHandle(hdc_handle)
+                        logger.info(f"GDI: Applied custom page size {label_config.width_mm}x{label_config.height_mm}mm via DEVMODE")
+                    else:
+                        hDC.CreatePrinterDC(printer_name)
                 else:
                     hDC.CreatePrinterDC(printer_name)
                 win32print.ClosePrinter(hprinter)
