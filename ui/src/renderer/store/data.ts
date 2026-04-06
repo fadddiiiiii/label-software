@@ -317,7 +317,7 @@ export const useDataStore = create<DataState>()(
           }
           case 'serial': {
             const cfgId = binding.serialId || fieldId;
-            const cfg = state.serialConfigs[cfgId] || state.serialConfigs[fieldId] || DEFAULT_SERIAL;
+            const cfg = state.serialConfigs[cfgId] || state.serialConfigs[fieldId] || binding.serialConfig || DEFAULT_SERIAL;
             const ri = rowIndex ?? state.currentPreviewRow;
             const delta = (cfg.increment || 1) * (cfg.step_type === 'decrease' ? -1 : 1);
             const calculatedCfg = {

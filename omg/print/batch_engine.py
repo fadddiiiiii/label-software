@@ -145,6 +145,11 @@ class BatchController:
             Final BatchProgress with results
         """
         total = self.adapter.row_count()
+        # If no DB is attached, the dummy adapter will say 1 row. We shouldn't limit it if the user wants multiple pages!
+        from omg.data.adapter import DummyRowAdapter
+        if isinstance(self.adapter, DummyRowAdapter) and end_row is not None:
+            total = end_row
+
         actual_end = min(end_row or total, total)
         actual_start = max(start_row, 0)
         row_range = actual_end - actual_start
@@ -313,7 +318,7 @@ class BatchController:
                 try:
                     from omg.platform_utils import get_print_dispatcher
                     dispatcher = get_print_dispatcher()
-                    dispatcher.print_pdf(merged, printer_name)
+                    dispatcher.print_pdf(merged, printer_name, copies=copies_per_label, label_config=self.template.label)
                     logger.info(f"PDF dispatched to OS spooler for '{printer_name}' ({len(merged)} bytes)")
                 except Exception as e:
                     logger.error(f"OS Print dispatch failed: {e}")
@@ -370,7 +375,7 @@ class BatchController:
         try:
             from omg.platform_utils import get_print_dispatcher
             dispatcher = get_print_dispatcher()
-            dispatcher.print_pdf(pdf_bytes, printer_name)
+            dispatcher.print_pdf(pdf_bytes, printer_name, label_config=self.template.label)
             logger.info(f"PDF dispatched to printer: {printer_name}")
         except Exception as e:
             logger.error(f"Print dispatch failed: {e}")

@@ -158,12 +158,12 @@ export default function BindingPanel() {
               <div className="input-row" style={{ marginBottom: 8 }}>
                 <div>
                   <label className="input-label">Start Value</label>
-                  <input type="number" className="input input--compact" value={serial.start}
+                  <input type="number" className="input input--compact" value={serial?.start ?? 1}
                     onChange={e => updateSerial({ start: +e.target.value, current_value: +e.target.value })} />
                 </div>
                 <div>
                   <label className="input-label">Increment</label>
-                  <input type="number" className="input input--compact" value={serial.increment}
+                  <input type="number" className="input input--compact" value={serial?.increment ?? 1}
                     onChange={e => updateSerial({ increment: +e.target.value })} />
                 </div>
               </div>
@@ -171,11 +171,11 @@ export default function BindingPanel() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ width: 80 }}>
                   <label className="input-label">Length</label>
-                  <input type="number" className="input input--compact" value={serial.digits || 5} 
+                  <input type="number" className="input input--compact" value={serial?.digits || 5} 
                     onChange={e => updateSerial({ digits: +e.target.value })} />
                 </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', marginTop: 14 }}>
-                  <input type="checkbox" checked={serial.pad_left ?? true} 
+                  <input type="checkbox" checked={serial?.pad_left ?? true} 
                     onChange={e => updateSerial({ pad_left: e.target.checked })} />
                   Pad with zeros
                 </label>
@@ -187,9 +187,9 @@ export default function BindingPanel() {
             </div>
           ) : (
             <div style={{ background: '#f8f9ff', padding: 'var(--space-2)', borderRadius: 8, border: '1px solid #e0e4ff' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#6366f1', marginBottom: 4 }}>Connected: {serial.name}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#6366f1', marginBottom: 4 }}>Connected: {serial?.name || 'Unknown Counter'}</div>
               <div style={{ fontSize: 10, color: '#666' }}>
-                Type: {serial.type} | Step: {serial.increment} ({serial.step_type})
+                Type: {serial?.type || '—'} | Step: {serial?.increment || '—'} ({serial?.step_type || '—'})
               </div>
             </div>
           )}

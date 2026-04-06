@@ -21,6 +21,9 @@ export default function BatchConsole() {
   const { toDocument } = useCanvasStoreCompat();
   const active = sources.find(s => s.id === activeSourceId);
 
+  // Extra print count for serial labels when there's no data source
+  const [printCount, setPrintCount] = useState(1);
+
   // Track whether we're waiting for keyboard input to complete
   const [pendingKeyboard, setPendingKeyboard] = useState(false);
 
@@ -77,8 +80,8 @@ export default function BatchConsole() {
   const getRowRange = () => {
     const maxRows = active?.rowCount ?? 0;
     if (maxRows === 0) {
-      // No data source — print 1 label with static/serial/date/keyboard values
-      return { startRow: 0, endRow: 1, totalToPrint: 1 };
+      // No data source — print dynamic labels based on standalone print count
+      return { startRow: 0, endRow: printCount, totalToPrint: printCount };
     }
     const startRow = printRange === 'custom' ? Math.max(0, customRange.start - 1) : 0;
     const endRow = printRange === 'custom' ? Math.min(maxRows, customRange.end) : maxRows;
@@ -203,7 +206,7 @@ export default function BatchConsole() {
           <div>
             <h3 style={{ fontSize: '18px', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>Print Console</h3>
             <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              {active ? `Bound to ${active.path.split('/').pop()} (${maxRows} rows)` : 'No data source connected. Will print 1 blank label.'}
+              {active ? `Bound to ${active.path.split('/').pop()} (${maxRows} rows)` : 'No data source connected.'}
             </div>
           </div>
           <button
@@ -278,47 +281,66 @@ export default function BatchConsole() {
           </div>
 
           {/* Print Range */}
-          {active && (
-            <div>
-              <label className="input-label" style={{ marginBottom: 8, display: 'block' }}>Print Range</label>
-              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                  <input
-                    type="radio" name="printRange"
-                    checked={printRange === 'all'}
-                    onChange={() => setPrintRange('all')}
-                  />
-                  All Rows ({maxRows})
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                  <input
-                    type="radio" name="printRange"
-                    checked={printRange === 'custom'}
-                    onChange={() => setPrintRange('custom')}
-                  />
-                  Custom Range
-                </label>
+          <div>
+            {active ? (
+              <>
+                <label className="input-label" style={{ marginBottom: 8, display: 'block' }}>Print Range</label>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <input
+                      type="radio" name="printRange"
+                      checked={printRange === 'all'}
+                      onChange={() => setPrintRange('all')}
+                    />
+                    All Rows ({maxRows})
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
+                    <input
+                      type="radio" name="printRange"
+                      checked={printRange === 'custom'}
+                      onChange={() => setPrintRange('custom')}
+                    />
+                    Custom Range
+                  </label>
 
-                {printRange === 'custom' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
-                    <input
-                      type="number" className="input" value={customRange.start}
-                      onChange={e => setCustomRange(+e.target.value, customRange.end)}
-                      min={1} max={customRange.end}
-                      style={{ width: 60, height: 28, fontSize: 13 }}
-                    />
-                    <span style={{ color: 'var(--text-muted)' }}>to</span>
-                    <input
-                      type="number" className="input" value={customRange.end}
-                      onChange={e => setCustomRange(customRange.start, +e.target.value)}
-                      min={customRange.start} max={maxRows}
-                      style={{ width: 60, height: 28, fontSize: 13 }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+                  {printRange === 'custom' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
+                      <input
+                        type="number" className="input" value={customRange.start}
+                        onChange={e => setCustomRange(+e.target.value, customRange.end)}
+                        min={1} max={customRange.end}
+                        style={{ width: 60, height: 28, fontSize: 13 }}
+                      />
+                      <span style={{ color: 'var(--text-muted)' }}>to</span>
+                      <input
+                        type="number" className="input" value={customRange.end}
+                        onChange={e => setCustomRange(customRange.start, +e.target.value)}
+                        min={customRange.start} max={maxRows}
+                        style={{ width: 60, height: 28, fontSize: 13 }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="input-label" style={{ marginBottom: 8, display: 'block' }}>Print Count</label>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                  <input 
+                    type="number" className="input" value={printCount}
+                    onChange={e => setPrintCount(Math.max(1, +e.target.value))}
+                    min={1} max={99999}
+                    style={{ width: 120, height: 36, fontSize: 13 }}
+                  />
+                  {bindings.some(b => b.type === 'serial') && (
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                      Labels will auto-increment based on serial number settings.
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Progress bar area */}
           {progress.status !== 'idle' && (

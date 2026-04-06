@@ -32,7 +32,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
     """
 
     def print_pdf(self, pdf_bytes: bytes, printer_name: str,
-                  copies: int = 1, duplex: bool = False) -> bool:
+                  copies: int = 1, duplex: bool = False, label_config=None) -> bool:
         """Print a PDF to any Windows printer via a 3-tier fallback chain."""
         # Save PDF to temp file (needed for SumatraPDF and ShellExecute)
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
@@ -50,7 +50,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
             # ── Attempt 2: GDI via Pillow ImageWin (universal) ────────
             try:
-                return self._print_pdf_via_gdi(pdf_bytes, printer_name, copies)
+                return self._print_pdf_via_gdi(pdf_bytes, printer_name, copies, label_config)
             except Exception as e:
                 logger.warning(f"GDI print failed: {e}")
 
@@ -94,7 +94,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
     # ── Tier 2: GDI via Pillow ImageWin ───────────────────────────
 
     def _print_pdf_via_gdi(self, pdf_bytes: bytes, printer_name: str,
-                           copies: int = 1) -> bool:
+                           copies: int = 1, label_config=None) -> bool:
         """Render PDF to images and print via Win32 GDI using Pillow ImageWin.
 
         Uses Pillow's ImageWin.Dib for fast, reliable bitmap transfer to
@@ -108,10 +108,43 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         import fitz  # pymupdf
 
         # ── Create printer DC using the printer driver's own settings ──
-        # This is the most compatible approach — the driver knows its
-        # own paper size, DPI, and capabilities.
         hDC = win32ui.CreateDC()
-        hDC.CreatePrinterDC(printer_name)
+        
+        if label_config:
+            try:
+                import win32gui
+                # Get the default DEVMODE for the printer
+                hprinter = win32print.OpenPrinter(printer_name)
+                # Call DocumentProperties twice: once to get the size, then to populate
+                size = win32print.DocumentProperties(0, hprinter, printer_name, None, None, 0)
+                if size > 0:
+                    devmode = win32print.DocumentProperties(0, hprinter, printer_name, None, None, win32con.DM_OUT_BUFFER)
+                    
+                    # DMPAPER_USER
+                    devmode.PaperSize = 256
+                    # DEVMODE lengths are in 1/10th of a millimeter
+                    devmode.PaperWidth = int(label_config.width_mm * 10)
+                    devmode.PaperLength = int(label_config.height_mm * 10)
+                    
+                    devmode.Orientation = 2 if label_config.width_mm > label_config.height_mm else 1
+
+                    # Combine DM_PAPERSIZE, DM_PAPERLENGTH, DM_PAPERWIDTH mask
+                    devmode.Fields |= win32con.DM_PAPERSIZE | win32con.DM_PAPERLENGTH | win32con.DM_PAPERWIDTH
+                    
+                    win32print.DocumentProperties(0, hprinter, printer_name, devmode, devmode, win32con.DM_IN_BUFFER | win32con.DM_OUT_BUFFER)
+                    
+                    hdc_handle = win32gui.CreateDC("WINSPOOL", printer_name, devmode)
+                    hDC = win32ui.CreateDCFromHandle(hdc_handle)
+                    logger.info(f"GDI: Applied custom page size {label_config.width_mm}x{label_config.height_mm}mm via DEVMODE")
+                else:
+                    hDC.CreatePrinterDC(printer_name)
+                win32print.ClosePrinter(hprinter)
+            except Exception as e:
+                logger.warning(f"GDI: Failed to set custom DEVMODE specs ({e}). Defaulting to driver bounds.")
+                hDC = win32ui.CreateDC()
+                hDC.CreatePrinterDC(printer_name)
+        else:
+            hDC.CreatePrinterDC(printer_name)
 
         try:
             # Query printer capabilities

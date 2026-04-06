@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import List
+import typing
 
 
 class AbstractPrintDispatcher(ABC):
@@ -13,7 +14,7 @@ class AbstractPrintDispatcher(ABC):
 
     @abstractmethod
     def print_pdf(self, pdf_bytes: bytes, printer_name: str,
-                  copies: int = 1, duplex: bool = False) -> bool:
+                  copies: int = 1, duplex: bool = False, label_config: typing.Any = None) -> bool:
         """Send PDF bytes to the named printer.
 
         Returns True on success, raises on failure.

@@ -21,7 +21,7 @@ class CUPSPrintDispatcher(AbstractPrintDispatcher):
     """macOS / Linux print dispatcher using CUPS."""
 
     def print_pdf(self, pdf_bytes: bytes, printer_name: str,
-                  copies: int = 1, duplex: bool = False) -> bool:
+                  copies: int = 1, duplex: bool = False, label_config=None) -> bool:
         """Print a PDF via CUPS lp command or pycups API."""
         # Save PDF to temp file
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
@@ -36,6 +36,8 @@ class CUPSPrintDispatcher(AbstractPrintDispatcher):
                 options = {"copies": str(copies)}
                 if duplex:
                     options["sides"] = "two-sided-long-edge"
+                if label_config:
+                    options["media"] = f"Custom.{label_config.width_mm}x{label_config.height_mm}mm"
 
                 job_id = conn.printFile(printer_name, tmp.name, "OMG Print", options)
                 logger.info(f"CUPS job submitted: {job_id} to {printer_name}")
@@ -47,6 +49,8 @@ class CUPSPrintDispatcher(AbstractPrintDispatcher):
             cmd = ["lp", "-d", printer_name, "-n", str(copies)]
             if duplex:
                 cmd.extend(["-o", "sides=two-sided-long-edge"])
+            if label_config:
+                cmd.extend(["-o", f"media=Custom.{label_config.width_mm}x{label_config.height_mm}mm"])
             cmd.append(tmp.name)
 
             logger.debug(f"Executing CUPS print command: {' '.join(cmd)}")
