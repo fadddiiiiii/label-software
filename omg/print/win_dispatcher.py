@@ -76,7 +76,18 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         """Silent PDF printing via SumatraPDF (if installed)."""
         settings = [f"{copies}x"]
         if label_config:
-            settings.append(f"paper={label_config.width_mm}x{label_config.height_mm}mm")
+            try:
+                # SumatraPDF ignores raw "100x40mm" inputs unless that string maps to a Windows Form name.
+                # So we use our bulletproof registry generator to drop an OS-level Form and feed *that* to Sumatra.
+                form_name = self._register_custom_form(None, printer_name, label_config.width_mm, label_config.height_mm)
+                if form_name:
+                    settings.append(f"paper={form_name}")
+                else:
+                    # Fallback string
+                    settings.append(f"paper={label_config.width_mm}x{label_config.height_mm}mm")
+            except Exception as e:
+                logger.debug(f"Sumatra custom form routing failed: {e}")
+                settings.append(f"paper={label_config.width_mm}x{label_config.height_mm}mm")
             
         result = subprocess.run(
             [
