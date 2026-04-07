@@ -99,6 +99,12 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         """Registers a custom form if missing. Returns the form name if successful or already exists, else None."""
         import win32print
         
+        # ── STAGE: Dimensional Protection ──
+        # Validates physical feasibility to prevent API integer bounds corruption
+        if not (2 <= width_mm <= 1500) or not (2 <= height_mm <= 1500):
+            logger.warning(f"Label parameters ({width_mm}x{height_mm}mm) out of allowable API boundary. Skipping registry mutation.")
+            return None
+            
         # SIZEL units are 0.001 millimeters (micrometers)
         cx = int((width_mm + 0.01) * 1000)
         cy = int((height_mm + 0.01) * 1000)
@@ -113,10 +119,25 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             hprinter_read = win32print.OpenPrinter(printer_name)
             try:
                 forms = win32print.EnumForms(hprinter_read)
-                for f in forms:
-                    if f['Name'] == form_name:
-                        logger.debug(f"Custom form {form_name} already exists. Bypassing registration.")
-                        return form_name
+                omg_forms = [f['Name'] for f in forms if f['Name'].startswith("OMG_")]
+                
+                # ── STAGE: Background Form Sweeper ──
+                if len(omg_forms) > 50:
+                    logger.info(f"Registry bloat detected ({len(omg_forms)} OMG_ forms). Executing background purge...")
+                    try:
+                        admin_defaults = {"DesiredAccess": win32print.PRINTER_ALL_ACCESS}
+                        hadmin_purge = win32print.OpenPrinter(printer_name, admin_defaults)
+                        for old_form in omg_forms:
+                            if old_form != form_name:
+                                try: win32print.DeleteForm(hadmin_purge, old_form)
+                                except Exception: pass
+                        win32print.ClosePrinter(hadmin_purge)
+                    except Exception as e:
+                        logger.debug(f"Could not secure admin for form sweep: {e}")
+                
+                if form_name in omg_forms:
+                    logger.debug(f"Custom form {form_name} already exists. Bypassing registration.")
+                    return form_name
             finally:
                 win32print.ClosePrinter(hprinter_read)
         except Exception as e:
