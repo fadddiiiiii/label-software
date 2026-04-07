@@ -17,9 +17,13 @@ export default function BatchConsole() {
     showKeyboardInput, keyboardValues
   } = usePrintStore();
 
-  const { sources, bindings, activeSourceId } = useDataStore();
-  const { toDocument } = useCanvasStoreCompat();
+  const { sources, bindings, activeSourceId, serialConfigs, setSerialConfig, updateBinding } = useDataStore();
+  const { toDocument, elements } = useCanvasStoreCompat();
   const active = sources.find(s => s.id === activeSourceId);
+  
+  const defaultSerialConfig: any = { start: 1, current_value: 1, increment: 1, step_type: 'increase', digits: 5, pad_left: false, type: 'numeric', reset_on: 'never' };
+  const serialBinding = bindings.find(b => b.type === 'serial' && elements.some(e => e.id === b.fieldId));
+  const primarySerialConfig = serialBinding ? (serialBinding.serialId ? serialConfigs[serialBinding.serialId] : (serialBinding.serialConfig || defaultSerialConfig)) : null;
 
   // Extra print count for serial labels when there's no data source
   const [printCount, setPrintCount] = useState(1);
@@ -75,6 +79,27 @@ export default function BatchConsole() {
     const s = Math.floor(ms / 1000);
     const m = Math.floor(s / 60);
     return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
+  };
+
+  const handleSerialStartChange = (val: number) => {
+    if (!serialBinding || !primarySerialConfig) return;
+    if (serialBinding.serialId) {
+      setSerialConfig(serialBinding.serialId, { ...primarySerialConfig, start: val, current_value: val });
+    } else {
+      updateBinding(serialBinding.fieldId, { serialConfig: { ...primarySerialConfig, start: val, current_value: val } });
+    }
+  };
+
+  const handleSerialEndChange = (val: number) => {
+    if (!primarySerialConfig) return;
+    const start = primarySerialConfig.start || 1;
+    const inc = primarySerialConfig.increment || 1;
+    if (val < start) {
+       setPrintCount(1);
+    } else {
+       const count = Math.floor((val - start) / inc) + 1;
+       setPrintCount(Math.max(1, count));
+    }
   };
 
   const getRowRange = () => {
@@ -322,6 +347,35 @@ export default function BatchConsole() {
                   )}
                 </div>
               </>
+            ) : primarySerialConfig ? (
+              <>
+                <label className="input-label" style={{ marginBottom: 8, display: 'block' }}>Serial Sequence Range</label>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>From:</span>
+                    <input 
+                      type="number" className="input" value={primarySerialConfig.start || 1}
+                      onChange={e => handleSerialStartChange(e.target.value === '' ? 1 : parseInt(e.target.value) || 1)}
+                      style={{ width: 100, height: 36, fontSize: 13 }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>To:</span>
+                    <input 
+                      type="number" className="input" 
+                      value={(primarySerialConfig.start || 1) + (printCount - 1) * (primarySerialConfig.increment || 1)}
+                      onChange={e => handleSerialEndChange(e.target.value === '' ? 1 : parseInt(e.target.value) || 1)}
+                      style={{ width: 100, height: 36, fontSize: 13 }}
+                    />
+                  </div>
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '6px 12px', borderRadius: 8 }}>
+                    Total Labels: <strong>{printCount}</strong>
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8 }}>
+                  Updates the start value of your counter and automatically calculates the right quantity.
+                </div>
+              </>
             ) : (
               <>
                 <label className="input-label" style={{ marginBottom: 8, display: 'block' }}>Print Count</label>
@@ -332,11 +386,9 @@ export default function BatchConsole() {
                     min={1} max={99999}
                     style={{ width: 120, height: 36, fontSize: 13 }}
                   />
-                  {bindings.some(b => b.type === 'serial') && (
-                    <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                      Labels will auto-increment based on serial number settings.
-                    </span>
-                  )}
+                  <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                    Number of labels to generate.
+                  </span>
                 </div>
               </>
             )}
