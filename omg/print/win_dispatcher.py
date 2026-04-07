@@ -95,28 +95,43 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         logger.info(f"Printed to '{printer_name}' via SumatraPDF")
         return True
 
-    def _register_custom_form(self, handle, printer_name: str, width_mm: float, height_mm: float) -> str:
-        """Registers a custom form in the Windows Print Server registry if it doesn't already exist."""
+    def _register_custom_form(self, handle, printer_name: str, width_mm: float, height_mm: float) -> str | None:
+        """Registers a custom form if missing. Returns the form name if successful or already exists, else None."""
         import win32print
-        # Truncate and sanitize to avoid 32-char limits
-        form_name = f"OMG_{int(width_mm)}x{int(height_mm)}"
         
         # SIZEL units are 0.001 millimeters (micrometers)
         cx = int((width_mm + 0.01) * 1000)
         cy = int((height_mm + 0.01) * 1000)
         
+        # Truncate and sanitize to avoid 32-char limits
+        form_name = f"OMG_{cx}x{cy}"
+        
+        # 1. ── First check if the form ALREADY exists! ──
+        # We can read forms without Admin privileges.
         try:
-            # We need admin or sufficient rights for AddForm, so we attempt to reopen with ALL_ACCESS if needed
-            # but we'll try the existing handle first, which might lack PRINTER_ALL_ACCESS depending on how it was opened
-            # Let's open a new isolated handle for modifying forms just to be safe
+            # handle might not be provided with enough access, but EnumForms usually requires minimal rights
+            hprinter_read = win32print.OpenPrinter(printer_name)
+            try:
+                forms = win32print.EnumForms(hprinter_read)
+                for f in forms:
+                    if f['Name'] == form_name:
+                        logger.debug(f"Custom form {form_name} already exists. Bypassing registration.")
+                        return form_name
+            finally:
+                win32print.ClosePrinter(hprinter_read)
+        except Exception as e:
+            logger.debug(f"EnumForms check failed: {e}")
+        
+        # 2. ── Attempt to formulate and add the Custom Form ──
+        try:
             admin_defaults = {"DesiredAccess": win32print.PRINTER_ALL_ACCESS}
             hadmin = win32print.OpenPrinter(printer_name, admin_defaults)
         except Exception as e:
-            logger.debug(f"Could not secure PRINTER_ALL_ACCESS to register form. Driver fallback will be used. {e}")
-            return form_name
+            logger.debug(f"Could not secure PRINTER_ALL_ACCESS to register missing form. Driver defaults will govern. {e}")
+            return None  # Crucially return None so we don't pass a bogus form into DEVMODE
             
         try:
-            # Delete if exists to avoid 'already exists' collision if specs changed
+            # Delete if exists to avoid 'already exists' collision (though EnumForms should have caught it)
             try:
                 win32print.DeleteForm(hadmin, form_name)
             except Exception:
@@ -131,17 +146,16 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             
             try:
                 win32print.AddForm(hadmin, form_dict)
-                logger.info(f"Registered Windows custom form: {form_name}")
             except Exception:
-                # Python PyWin32 usually requires fallback to level 1 arguments on older versions
                 win32print.AddForm(hadmin, 1, form_dict)
-                logger.info(f"Registered Windows custom form: {form_name}")
+                
+            logger.info(f"Registered brand new OS-level form: {form_name}")
+            return form_name
         except Exception as e:
             logger.warning(f"Failed to register OS-level form {form_name}: {e}")
+            return None
         finally:
             win32print.ClosePrinter(hadmin)
-            
-        return form_name
 
     # ── Tier 2: GDI via Pillow ImageWin ───────────────────────────
 
