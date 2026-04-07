@@ -95,6 +95,54 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         logger.info(f"Printed to '{printer_name}' via SumatraPDF")
         return True
 
+    def _register_custom_form(self, handle, printer_name: str, width_mm: float, height_mm: float) -> str:
+        """Registers a custom form in the Windows Print Server registry if it doesn't already exist."""
+        import win32print
+        # Truncate and sanitize to avoid 32-char limits
+        form_name = f"OMG_{int(width_mm)}x{int(height_mm)}"
+        
+        # SIZEL units are 0.001 millimeters (micrometers)
+        cx = int((width_mm + 0.01) * 1000)
+        cy = int((height_mm + 0.01) * 1000)
+        
+        try:
+            # We need admin or sufficient rights for AddForm, so we attempt to reopen with ALL_ACCESS if needed
+            # but we'll try the existing handle first, which might lack PRINTER_ALL_ACCESS depending on how it was opened
+            # Let's open a new isolated handle for modifying forms just to be safe
+            admin_defaults = {"DesiredAccess": win32print.PRINTER_ALL_ACCESS}
+            hadmin = win32print.OpenPrinter(printer_name, admin_defaults)
+        except Exception as e:
+            logger.debug(f"Could not secure PRINTER_ALL_ACCESS to register form. Driver fallback will be used. {e}")
+            return form_name
+            
+        try:
+            # Delete if exists to avoid 'already exists' collision if specs changed
+            try:
+                win32print.DeleteForm(hadmin, form_name)
+            except Exception:
+                pass
+                
+            form_dict = {
+                "Flags": 0,  # FORM_USER
+                "Name": form_name,
+                "Size": {"cx": cx, "cy": cy},
+                "ImageableArea": {"left": 0, "top": 0, "right": cx, "bottom": cy}
+            }
+            
+            try:
+                win32print.AddForm(hadmin, form_dict)
+                logger.info(f"Registered Windows custom form: {form_name}")
+            except Exception:
+                # Python PyWin32 usually requires fallback to level 1 arguments on older versions
+                win32print.AddForm(hadmin, 1, form_dict)
+                logger.info(f"Registered Windows custom form: {form_name}")
+        except Exception as e:
+            logger.warning(f"Failed to register OS-level form {form_name}: {e}")
+        finally:
+            win32print.ClosePrinter(hadmin)
+            
+        return form_name
+
     # ── Tier 2: GDI via Pillow ImageWin ───────────────────────────
 
     def _print_pdf_via_gdi(self, pdf_bytes: bytes, printer_name: str,
@@ -125,6 +173,17 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                     res, devmode = win32print.DocumentProperties(0, hprinter, printer_name, None, None, win32con.DM_OUT_BUFFER)
                     
                     if res == win32con.IDOK:
+                        # Register the OS-level custom form
+                        form_name = self._register_custom_form(hprinter, printer_name, label_config.width_mm, label_config.height_mm)
+                        
+                        # Apply to DEVMODE
+                        if form_name:
+                            try:
+                                devmode.FormName = form_name
+                                devmode.Fields |= win32con.DM_FORMNAME
+                            except Exception as e:
+                                logger.debug(f"Could not assign FormName: {e}")
+                                
                         # DMPAPER_USER
                         devmode.PaperSize = 256
                         # DEVMODE lengths are in 1/10th of a millimeter
