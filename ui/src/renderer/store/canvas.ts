@@ -509,16 +509,14 @@ export function toDocument(): TemplateDocument {
       }
 
       if (b.type === 'serial') {
-        const cfgId = b.serialId || e.id;
-        // Check all possible config sources:
-        // 1. Global serial configs by serialId
-        // 2. Global serial configs by element id
-        // 3. Local serial config stored on the binding itself
-        // 4. Fallback defaults
-        const cfg = ds.serialConfigs[cfgId]
-          || ds.serialConfigs[e.id]
-          || b.serialConfig
-          || { start: 1, increment: 1, current_value: 1, pad_left: false, digits: 0, step_type: 'increase' as const, prefix: '', suffix: '' };
+        // For global counters, use b.serialId to fetch from ds.serialConfigs.
+        // For local counters, use b.serialConfig as the ultimate source of truth,
+        // falling back to legacy ds.serialConfigs[e.id] only if b.serialConfig is somehow missing.
+        const defaultCfg = { start: 1, increment: 1, current_value: 1, pad_left: false, digits: 0, step_type: 'increase' as const, prefix: '', suffix: '' };
+        
+        const cfg = b.serialId 
+          ? (ds.serialConfigs[b.serialId] || defaultCfg) 
+          : (b.serialConfig || ds.serialConfigs[e.id] || defaultCfg);
         return {
           ...baseElem,
           serial_binding: {
