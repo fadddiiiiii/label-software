@@ -74,7 +74,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
     def _try_sumatra(self, pdf_path: str, printer_name: str, copies: int, label_config=None) -> bool:
         """Silent PDF printing via SumatraPDF (if installed)."""
-        settings = [f"{copies}x"]
+        settings = [f"{copies}x", "noscale"]
         if label_config:
             try:
                 # SumatraPDF ignores raw "100x40mm" inputs unless that string maps to a Windows Form name.
