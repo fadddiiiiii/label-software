@@ -46,6 +46,13 @@ const ALLOWED_CHANNELS = [
   'store:write',
   'update:status',
   'update:progress',
+  'menu:file-new',
+  'menu:file-open',
+  'menu:file-save',
+  'menu:show-about',
+  'menu:show-docs',
+  'menu:show-feedback',
+  'menu:check-updates',
 ] as const;
 
 type Channel = typeof ALLOWED_CHANNELS[number];

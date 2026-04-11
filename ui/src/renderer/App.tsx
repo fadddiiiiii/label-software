@@ -149,6 +149,10 @@ export default function App() {
   );
 }
 
+import { AboutDialog } from './components/dialogs/AboutDialog';
+import { DocumentationDialog } from './components/dialogs/DocumentationDialog';
+import { FeedbackDialog } from './components/dialogs/FeedbackDialog';
+
 function Designer({ onGoHome }: { onGoHome: () => void }) {
   const canvas = useCanvasStoreCompat();
   const { zoom, showGrid, snapToGrid, setZoom, toggleGrid, toggleSnap } = useCanvasStore();
@@ -158,6 +162,11 @@ function Designer({ onGoHome }: { onGoHome: () => void }) {
   const [version, setVersion] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showNewLabel, setShowNewLabel] = useState(false);
+  
+  // Menu Dialogs State
+  const [showAbout, setShowAbout] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const activeId = useTabsStore(s => s.activeId);
   const tabCount = useTabsStore(s => s.tabs.length);
@@ -202,6 +211,44 @@ function Designer({ onGoHome }: { onGoHome: () => void }) {
   useEffect(() => {
     if (settings.snapToGrid !== snapToGrid) toggleSnap();
   }, [settings.snapToGrid]);
+
+  useEffect(() => {
+    // Top Menu IPC Connections
+    window.electron.ipcRenderer.on('menu:show-about', () => setShowAbout(true));
+    window.electron.ipcRenderer.on('menu:show-docs', () => setShowDocs(true));
+    window.electron.ipcRenderer.on('menu:show-feedback', () => setShowFeedback(true));
+    
+    // File Menu Connections
+    window.electron.ipcRenderer.on('menu:file-new', () => setShowNewLabel(true));
+    window.electron.ipcRenderer.on('menu:file-open', async () => {
+      const path = await window.electron.ipcRenderer.invoke('template:open-dialog');
+      if (path && typeof path === 'string') {
+        const json = await window.electron.ipcRenderer.invoke('template:load', { filePath: path });
+        // @ts-ignore - The 'file' type in openTab might legally accept it at runtime or it's fetched from 'path'
+        useTabsStore.getState().openTab({ type: 'file', path: path, templateJson: json }); 
+      }
+    });
+    window.electron.ipcRenderer.on('menu:file-save', async () => {
+      const tab = useTabsStore.getState().getActive();
+      if (!tab) return;
+      let targetPath = tab.filePath || '';
+      if (!targetPath) {
+        const selected = await window.electron.ipcRenderer.invoke('template:save-dialog');
+        if (!selected) return;
+        targetPath = selected;
+      }
+      const doc = useCanvasStoreCompat().toDocument();
+      await window.electron.ipcRenderer.invoke('template:save', { filePath: targetPath, json: doc });
+      useTabsStore.getState().markSaved(tab.id, targetPath);
+    });
+
+    return () => {
+      ['menu:show-about', 'menu:show-docs', 'menu:show-feedback', 'menu:file-new', 'menu:file-open', 'menu:file-save'].forEach(channel => {
+          // @ts-ignore
+          window.electron.ipcRenderer.removeAllListeners(channel);
+      });
+    };
+  }, []);
 
   useEffect(() => {
     if (settings.showRulers !== showGrid) toggleGrid();
@@ -274,6 +321,7 @@ function Designer({ onGoHome }: { onGoHome: () => void }) {
     }, 50);
   }, [canvas]);
 
+  // ... existing code in Designer remains the same ...
   return (
     <div className="app-layout">
       {/* Top Nav */}
@@ -308,7 +356,6 @@ function Designer({ onGoHome }: { onGoHome: () => void }) {
       {/* Status Bar */}
       <StatusBar label={label} elements={elements} zoom={zoom} version={version} />
 
-
       {/* Overlays */}
       <BatchConsole />
       <KeyboardInputModal />
@@ -323,6 +370,11 @@ function Designer({ onGoHome }: { onGoHome: () => void }) {
       />
       <SerialNumberManager />
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      
+      {/* Menu Dialogs */}
+      {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
+      {showDocs && <DocumentationDialog onClose={() => setShowDocs(false)} />}
+      {showFeedback && <FeedbackDialog onClose={() => setShowFeedback(false)} />}
     </div>
   );
 }

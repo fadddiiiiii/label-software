@@ -8,27 +8,9 @@ import path from 'path';
 import { startPythonBridge, callPython, stopPythonBridge } from './python-bridge';
 import { registerIpcHandlers } from './ipc';
 import { setupUpdater } from './updater';
+import { setupApplicationMenu } from './menu';
 
-app.name = 'OMG';
-app.setName('OMG');
-
-// ── Single-instance lock (production only) ───────────────────────────
-// Only enforce in packaged builds. In dev mode (npm run electron:dev),
-// we never want this to block the dev Electron from starting while
-// a previously-built production app happens to be open.
-if (app.isPackaged) {
-  const gotLock = app.requestSingleInstanceLock();
-  if (!gotLock) {
-    app.quit();
-  } else {
-    app.on('second-instance', () => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-      }
-    });
-  }
-}
+// App initialization is done inside app.whenReady()
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -83,12 +65,32 @@ function createWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  app.name = 'OMG';
+  try {
+    app.setName('OMG');
+  } catch (e) { /* ignore */ }
+
+  if (app.isPackaged) {
+    const gotLock = app.requestSingleInstanceLock();
+    if (!gotLock) {
+      app.quit();
+      return;
+    } else {
+      app.on('second-instance', () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.focus();
+        }
+      });
+    }
+  }
+
   // Start the Python engine subprocess
   // In dev: __dirname is ui/dist/main/, so we go up 3 levels to reach project root's omg/
   const enginePath = app.isPackaged
     ? path.join(process.resourcesPath, 'engine')
     : path.join(__dirname, '../../../omg');
-  
+
   try {
     startPythonBridge(enginePath);
     console.log('Python bridge started');
@@ -98,7 +100,7 @@ app.whenReady().then(async () => {
 
   // Register all IPC handlers
   registerIpcHandlers();
-  
+
   ipcMain.handle('engine:get-status', () => {
     const { getPythonStatus, isPythonReady } = require('./python-bridge');
     return {

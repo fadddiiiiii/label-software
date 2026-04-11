@@ -31,17 +31,9 @@ export default function BatchConsole() {
   // Track whether we're waiting for keyboard input to complete
   const [pendingKeyboard, setPendingKeyboard] = useState(false);
 
-  const [printMode, setPrintMode] = useState<'pdf' | 'zpl'>('pdf');
-
-  // Auto-detect best mode when printer changes
-  const isNativePrinter = (name: string) => {
-    const u = name.toUpperCase();
-    return ['TOSHIBA', 'TSC', 'B-FV', 'B-EV', 'B-SA', 'B-EX', 'ZEBRA', 'ZD', 'ZT', 'GK', 'GX', 'ZPL'].some(kw => u.includes(kw));
-  };
 
   const handlePrinterChange = (name: string) => {
     setSelectedPrinter(name);
-    setPrintMode(isNativePrinter(name) ? 'zpl' : 'pdf');
   };
 
   // Fetch printers and apply defaults on mount
@@ -55,7 +47,6 @@ export default function BatchConsole() {
       }
       if (initialPrinter) {
         setSelectedPrinter(initialPrinter);
-        setPrintMode(isNativePrinter(initialPrinter) ? 'zpl' : 'pdf');
       }
     }).catch(() => { });
     if (s.copiesPerLabel > 0) setCopiesPerLabel(s.copiesPerLabel);
@@ -138,7 +129,7 @@ export default function BatchConsole() {
         copies_per_label: copiesPerLabel,
         start_row: startRow,
         end_row: endRow,
-        print_mode: printMode,
+        print_mode: 'pdf',
         keyboard_values: keyboardValues,
       });
       console.log('[Batch] result:', result);
@@ -278,31 +269,6 @@ export default function BatchConsole() {
               />
             </div>
 
-            {/* Print Engine Toggle */}
-            <div style={{ gridColumn: '1 / -1', marginTop: '4px' }}>
-              <label className="input-label" style={{ marginBottom: 6, display: 'block' }}>Print Engine</label>
-              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                  <input type="radio" checked={printMode === 'pdf'} onChange={() => setPrintMode('pdf')} />
-                  <div>
-                    <div style={{ fontWeight: 500 }}>Universal (All Printers)</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>PDF → Image render — works with inkjet, laser, and thermal printers</div>
-                  </div>
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13 }}>
-                  <input type="radio" checked={printMode === 'zpl'} onChange={() => setPrintMode('zpl')} />
-                  <div>
-                    <div style={{ fontWeight: 500 }}>Native Commands {isNativePrinter(selectedPrinter) ? '✓' : ''}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>For Thermal Printers</div>
-                  </div>
-                </label>
-              </div>
-              {printMode === 'zpl' && !isNativePrinter(selectedPrinter) && (
-                <div style={{ marginTop: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', fontSize: 11, color: 'var(--accent-warning, #d97706)' }}>
-                  ⚠️ Native mode may not work with <strong>{selectedPrinter}</strong>. Switch to <strong>Universal</strong> mode for this printer.
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Print Range */}

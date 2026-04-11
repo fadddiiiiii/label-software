@@ -209,52 +209,35 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         hDC = win32ui.CreateDC()
         
         if label_config:
+            hprinter = None
             try:
                 import win32gui
-                # Get the default DEVMODE for the printer
                 hprinter = win32print.OpenPrinter(printer_name)
-                # Call DocumentProperties twice: once to get the size, then to populate
-                size = win32print.DocumentProperties(0, hprinter, printer_name, None, None, 0)
-                if size > 0:
-                    res, devmode = win32print.DocumentProperties(0, hprinter, printer_name, None, None, win32con.DM_OUT_BUFFER)
+                # Bypassing DocumentProperties directly to GetPrinter(level=2)
+                # because thermal drivers reject it with Error 87
+                printer_info = win32print.GetPrinter(hprinter, 2)
+                devmode = printer_info.get('pDevMode')
+                
+                if devmode:
+                    devmode.PaperSize = 256
+                    devmode.PaperWidth = int(label_config.width_mm * 10)
+                    devmode.PaperLength = int(label_config.height_mm * 10)
+                    devmode.Orientation = 1
                     
-                    if res == win32con.IDOK:
-                        # Register the OS-level custom form
-                        form_name = self._register_custom_form(hprinter, printer_name, label_config.width_mm, label_config.height_mm)
-                        
-                        # Apply to DEVMODE
-                        if form_name:
-                            try:
-                                devmode.FormName = form_name
-                                devmode.Fields |= win32con.DM_FORMNAME
-                            except Exception as e:
-                                logger.debug(f"Could not assign FormName: {e}")
-                                
-                        # DMPAPER_USER
-                        devmode.PaperSize = 256
-                        # DEVMODE lengths are in 1/10th of a millimeter
-                        devmode.PaperWidth = int(label_config.width_mm * 10)
-                        devmode.PaperLength = int(label_config.height_mm * 10)
-                        
-                        devmode.Orientation = 2 if label_config.width_mm > label_config.height_mm else 1
-
-                        # Combine DM_PAPERSIZE, DM_PAPERLENGTH, DM_PAPERWIDTH mask
-                        devmode.Fields |= win32con.DM_PAPERSIZE | win32con.DM_PAPERLENGTH | win32con.DM_PAPERWIDTH
-                        
-                        win32print.DocumentProperties(0, hprinter, printer_name, devmode, devmode, win32con.DM_IN_BUFFER | win32con.DM_OUT_BUFFER)
-                        
-                        hdc_handle = win32gui.CreateDC("WINSPOOL", printer_name, devmode)
-                        hDC = win32ui.CreateDCFromHandle(hdc_handle)
-                        logger.info(f"GDI: Applied custom page size {label_config.width_mm}x{label_config.height_mm}mm via DEVMODE")
-                    else:
-                        hDC.CreatePrinterDC(printer_name)
+                    devmode.Fields |= (win32con.DM_PAPERSIZE | win32con.DM_PAPERLENGTH | win32con.DM_PAPERWIDTH | win32con.DM_ORIENTATION)
+                    
+                    hdc_handle = win32gui.CreateDC("WINSPOOL", printer_name, devmode)
+                    hDC = win32ui.CreateDCFromHandle(hdc_handle)
+                    logger.info(f"GDI: Applied custom page size {label_config.width_mm}x{label_config.height_mm}mm via direct DEVMODE")
                 else:
                     hDC.CreatePrinterDC(printer_name)
-                win32print.ClosePrinter(hprinter)
             except Exception as e:
                 logger.warning(f"GDI: Failed to set custom DEVMODE specs ({e}). Defaulting to driver bounds.")
                 hDC = win32ui.CreateDC()
                 hDC.CreatePrinterDC(printer_name)
+            finally:
+                if hprinter:
+                    win32print.ClosePrinter(hprinter)
         else:
             hDC.CreatePrinterDC(printer_name)
 
