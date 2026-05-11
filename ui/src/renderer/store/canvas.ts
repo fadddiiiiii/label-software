@@ -572,12 +572,16 @@ export function toDocument(): TemplateDocument {
 
       return baseElem;
     }),
-    data_sources: ds.sources.map(s => ({
-      id: s.id,
-      type: s.type,
-      path: s.path,
-      name: s.name,
-    })),
+    // Only include data sources connected to this tab (via activeSourceId),
+    // not all global data sources from other tabs/labels.
+    data_sources: ds.sources
+      .filter(s => s.id === tab?.activeSourceId)
+      .map(s => ({
+        id: s.id,
+        type: s.type,
+        path: s.path,
+        name: s.name,
+      })),
     active_source_id: tab?.activeSourceId ?? undefined,
     current_row_index: tab?.currentPreviewRow ?? 0,
   };

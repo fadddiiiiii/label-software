@@ -33,7 +33,11 @@ class CUPSPrintDispatcher(AbstractPrintDispatcher):
             try:
                 import cups
                 conn = cups.Connection()
-                options = {"copies": str(copies)}
+                options = {
+                    "copies": str(copies),
+                    "fit-to-page": "false",    # Prevent CUPS from scaling
+                    "noFitOutput": "true",      # Some drivers respect this
+                }
                 if duplex:
                     options["sides"] = "two-sided-long-edge"
                 if label_config:
@@ -46,7 +50,9 @@ class CUPSPrintDispatcher(AbstractPrintDispatcher):
                 logger.warning("pycups not available, falling back to lp command")
 
             # Method 2: Fallback to lp command
-            cmd = ["lp", "-d", printer_name, "-n", str(copies)]
+            cmd = ["lp", "-d", printer_name, "-n", str(copies),
+                   "-o", "fit-to-page=false",  # Prevent scaling
+                   "-o", "noFitOutput"]
             if duplex:
                 cmd.extend(["-o", "sides=two-sided-long-edge"])
             if label_config:

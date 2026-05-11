@@ -141,7 +141,11 @@ class ZplRenderer:
 
     def _draw_barcode(self, lines, elem, value, x, y, w, h, rot):
         sym = elem.symbology or ("qrcode" if elem.type == 'qrcode' else "code128")
-        bc_str = str(value) if value else ("12345" if sym != "qrcode" else "https://omg.com")
+        bc_str = str(value).strip() if value and str(value).strip() else ""
+
+        # If no barcode value provided, skip rendering entirely
+        if not bc_str:
+            return
         
         show_text = getattr(elem, 'show_text', True)
         

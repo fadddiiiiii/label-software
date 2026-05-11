@@ -119,17 +119,17 @@ export function setupApplicationMenu() {
 
     // { role: 'help' }
     {
-      role: 'help',
+      label: 'Help',
       submenu: [
         {
-          label: 'Learn More (About)',
+          label: 'About OMG',
           click: () => {
             const focusedWindow = BrowserWindow.getFocusedWindow();
             focusedWindow?.webContents.send('menu:show-about');
           }
         },
         {
-          label: 'Documentation',
+          label: 'User Documentation',
           click: () => {
              const focusedWindow = BrowserWindow.getFocusedWindow();
              focusedWindow?.webContents.send('menu:show-docs');

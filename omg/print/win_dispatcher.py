@@ -195,10 +195,12 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                            copies: int = 1, label_config=None) -> bool:
         """Render PDF to images and print via Win32 GDI using Pillow ImageWin.
 
-        Uses Pillow's ImageWin.Dib for fast, reliable bitmap transfer to
-        the printer device context. Works with ALL printers — inkjet,
-        laser, and thermal label printers.
+        Uses a STREAMING approach: renders one page at a time to avoid
+        loading all pages into memory simultaneously. This is critical
+        for large batch jobs (500+ labels) that would otherwise exhaust
+        available RAM and crash the process.
         """
+        import gc
         import win32print
         import win32ui
         import win32con
@@ -254,45 +256,97 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 f"printable area={printer_w}x{printer_h} dots"
             )
 
-            # Render PDF at the printer's native DPI for best quality
-            render_dpi = max(printer_dpi_x, 150)
-            images = self._pdf_to_images(pdf_bytes, dpi=render_dpi)
-            if not images:
-                raise RuntimeError("No pages rendered from PDF")
+            # ── HIGH-QUALITY RASTERIZATION ──
+            # Render at 3× the printer's native DPI (minimum 600 DPI).
+            # This is critical because text at native 203 DPI looks broken
+            # and faded. The printer driver handles the high-to-native DPI
+            # downscaling using its own dithering, producing far crisper
+            # output than a low-res source bitmap.
+            render_dpi = max(printer_dpi_x * 3, 600)
+            zoom = render_dpi / 72.0
+            mat = fitz.Matrix(zoom, zoom)
 
-            logger.info(f"GDI: {len(images)} page(s), {copies} copies → '{printer_name}'")
+            # Open PDF document once for streaming page-by-page
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+            total_pages = len(doc)
+
+            if total_pages == 0:
+                doc.close()
+                raise RuntimeError("No pages found in PDF")
+
+            logger.info(
+                f"GDI: {total_pages} page(s), {copies} copies → '{printer_name}' "
+                f"(streaming at {render_dpi} DPI for {printer_dpi_x} DPI printer)"
+            )
+
+            page_errors = 0
 
             for copy_num in range(copies):
                 hDC.StartDoc("OMG Labels")
 
-                for page_idx, img in enumerate(images):
-                    hDC.StartPage()
+                for page_idx in range(total_pages):
+                    try:
+                        # ── STREAM: Rasterize one page at a time ──
+                        # This keeps peak memory to ~1 image instead of
+                        # loading ALL pages (500 × 8 MB = 4 GB) at once.
+                        page = doc[page_idx]
+                        pix = page.get_pixmap(matrix=mat, alpha=False)
+                        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 
-                    img_w, img_h = img.size
+                        # Free the MuPDF pixmap immediately
+                        pix = None
 
-                    # Scale image to fit the printer's printable area,
-                    # but never upscale (scale <= 1.0 preserves quality)
-                    scale_x = printer_w / img_w if img_w > 0 else 1.0
-                    scale_y = printer_h / img_h if img_h > 0 else 1.0
-                    scale = min(scale_x, scale_y, 1.0)
+                        hDC.StartPage()
 
-                    dest_w = int(img_w * scale)
-                    dest_h = int(img_h * scale)
+                        # ── Map the high-DPI render to fill the printer area ──
+                        img_w, img_h = img.size
+                        scale_x = printer_w / img_w if img_w > 0 else 1.0
+                        scale_y = printer_h / img_h if img_h > 0 else 1.0
+                        scale = min(scale_x, scale_y)
 
-                    # Use Pillow's ImageWin.Dib for reliable, fast bitmap
-                    # transfer — handles BGR conversion and alignment internally
-                    dib = ImageWin.Dib(img)
-                    dib.draw(hDC.GetHandleOutput(), (0, 0, dest_w, dest_h))
+                        dest_w = int(img_w * scale)
+                        dest_h = int(img_h * scale)
 
-                    hDC.EndPage()
-                    logger.debug(
-                        f"GDI: page {page_idx + 1} drawn "
-                        f"({img_w}x{img_h} → {dest_w}x{dest_h} dots)"
-                    )
+                        dib = ImageWin.Dib(img)
+                        dib.draw(hDC.GetHandleOutput(), (0, 0, dest_w, dest_h))
+
+                        hDC.EndPage()
+
+                        # Free image memory immediately after sending to spooler
+                        del dib
+                        del img
+                        if page_idx % 50 == 0:
+                            gc.collect()
+
+                        if page_idx % 100 == 0 and page_idx > 0:
+                            logger.info(f"GDI: progress {page_idx}/{total_pages} pages sent")
+
+                    except Exception as page_err:
+                        page_errors += 1
+                        logger.error(f"GDI: page {page_idx + 1} failed: {page_err}")
+                        # Try to end the page cleanly so subsequent pages can proceed
+                        try:
+                            hDC.EndPage()
+                        except Exception:
+                            pass
+                        if page_errors > 10:
+                            logger.error("GDI: too many page errors, aborting job")
+                            break
 
                 hDC.EndDoc()
 
-            logger.info(f"Printed to '{printer_name}' via GDI rendering")
+            doc.close()
+
+            if page_errors > 10:
+                raise RuntimeError(
+                    f"Printing aborted: {page_errors} pages failed to render out of {total_pages}. "
+                    f"This is usually caused by insufficient memory. Try printing in smaller batches (e.g. 50–100 labels at a time)."
+                )
+
+            if page_errors > 0:
+                logger.warning(f"GDI: completed with {page_errors} page errors out of {total_pages}")
+
+            logger.info(f"Printed {total_pages} pages to '{printer_name}' via GDI streaming")
             return True
 
         finally:

@@ -36,6 +36,7 @@ async function electronPrintPdf(pdfPath: string, printerName: string): Promise<b
           silent: true,
           deviceName: printerName,
           printBackground: true,
+          scaleFactor: 100,  // 100 = no scaling (1:1 exact size)
         },
         (success, failureReason) => {
           if (success) {

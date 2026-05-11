@@ -367,7 +367,10 @@ class RowRenderer:
             fontSize=start_fs,
             textColor=_hex_to_color(text_fill_hex),
             alignment=align_code,
-            leading=start_fs,
+            # Konva's Text component uses a default line-height of ~1.2×fontSize.
+            # Match that here so multi-line text and vertical centering are
+            # consistent between the canvas preview and the printed output.
+            leading=start_fs * 1.2,
         )
 
         p_text = escape(text_val).replace("\n", "<br/>")
@@ -409,14 +412,15 @@ class RowRenderer:
 
             # ── Text font size — must match frontend ElementShape.tsx ──
             # Frontend: textFontSize = Math.max(6, (elem.text_font_size_mm || 2.5) * MM_TO_PX * zoom)
-            # MM_TO_PX = 96/25.4 ≈ 3.78.  To get PDF pt we multiply mm by 72/25.4 ≈ 2.835
+            # The canvas clamp is 6 CSS px = 6 * (72/96) = 4.5 pt
+            # mm → pt = mm * 72 / 25.4 (same physical size as mm * 96/25.4 CSS px)
             text_fs_mm = getattr(elem, 'text_font_size_mm', 2.5)
-            text_font_size_pt = max(6.0, mm_to_pt(text_fs_mm))
+            text_font_size_pt = max(4.5, mm_to_pt(text_fs_mm))
 
             # ── Bar / text height split — must match frontend ──
             # Frontend: barH = showHumanText ? Math.max(h * 0.1, h - textFontSize - 2 * zoom) : h
-            # At zoom=1, 2*zoom = 2px.  2 CSS px * (72/96) = 1.5pt
-            # Use the user-configurable barcode_text_margin_mm if set
+            # At zoom=1, "2 * zoom" = 2 CSS px = 2 * (72/96) = 1.5 pt
+            # Use user-configurable barcode_text_margin_mm if set
             text_margin_mm = getattr(elem, 'barcode_text_margin_mm', 0)
             if text_margin_mm and text_margin_mm != 0:
                 text_margin_pt = mm_to_pt(abs(text_margin_mm))
@@ -430,7 +434,11 @@ class RowRenderer:
                 bar_h_pt = h_pt
                 text_h_pt = 0
 
-            barcode_str = str(value) if value and str(value).strip() else ("https://omg.com" if sym == "qrcode" else "12345678")
+            barcode_str = str(value).strip() if value and str(value).strip() else ""
+
+            # If no barcode value provided, skip rendering entirely
+            if not barcode_str:
+                return
 
             drawing = None
             try:
@@ -503,6 +511,10 @@ class RowRenderer:
                     text_block_y = y_pt
 
                 # Center text vertically within text_h_pt
+                # Use ascent for accurate baseline positioning (ReportLab draws from baseline)
+                face = pdfmetrics.getFont(font_name).face
+                ascent_ratio = face.ascent / (face.ascent - face.descent) if (face.ascent - face.descent) != 0 else 0.8
+                text_ascent = text_font_size_pt * ascent_ratio
                 ty = text_block_y + (text_h_pt - text_font_size_pt) / 2.0
 
                 anchor = getattr(elem, 'text_anchor', 'center')

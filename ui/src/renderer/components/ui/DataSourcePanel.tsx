@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDataStore } from '../../store/data';
+import { useTabsStore } from '../../store/tabs';
 import { Upload, X, ChevronLeft, ChevronRight, Database, FileText, Trash2, RefreshCw, CheckCircle2 } from 'lucide-react';
 import DataImportModal from './DataImportModal';
 
@@ -12,15 +13,28 @@ export default function DataSourcePanel() {
   const [refreshStatus, setRefreshStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const active = sources.find(s => s.id === activeSourceId);
+  // ── Scope sources to the current tab ──
+  // Only show data sources that are connected to this tab/label.
+  // The tab stores its own `activeSourceId`, which is the source
+  // connected to it. Other tabs may have different sources.
+  const activeTabId = useTabsStore(s => s.activeId);
+  const tabActiveSourceId = useTabsStore(s => {
+    const tab = s.tabs.find(t => t.id === s.activeId);
+    return tab?.activeSourceId ?? null;
+  });
+
+  // Filter sources to only show the one connected to this tab
+  const tabSources = sources.filter(s => s.id === tabActiveSourceId);
+  const active = tabSources.find(s => s.id === activeSourceId) || tabSources[0] || null;
 
   const handleRefresh = async () => {
-    if (!activeSourceId) return;
+    const sourceId = active?.id;
+    if (!sourceId) return;
     setIsRefreshing(true);
     setRefreshStatus('idle');
     setErrorMsg(null);
     try {
-      const res = await refreshSource(activeSourceId);
+      const res = await refreshSource(sourceId);
       if (res.ok) {
         setRefreshStatus('success');
         setTimeout(() => setRefreshStatus('idle'), 2000);
@@ -33,6 +47,15 @@ export default function DataSourcePanel() {
       setErrorMsg(err.message || 'Refresh failed');
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleDisconnect = (sourceId: string) => {
+    // Disconnect from this tab (clear active source) but don't delete globally
+    if (activeTabId) {
+      useTabsStore.getState().updateActiveSource(activeTabId, null);
+      // Also update the data store's active source to match
+      setActiveSource(null);
     }
   };
 
@@ -52,6 +75,11 @@ export default function DataSourcePanel() {
                 <Database size={24} strokeWidth={2.5} />
               </div>
               Data Sources
+              {tabSources.length > 0 && (
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#888', marginLeft: 4 }}>
+                  ({tabSources.length} connected)
+                </span>
+              )}
             </div>
             <button onClick={() => setDataSourceModalOpen(false)} style={{ background: '#f5f5f7', border: 'none', cursor: 'pointer', width: 36, height: 36, color: '#999', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
               onMouseEnter={e => { e.currentTarget.style.background = '#eee'; e.currentTarget.style.color = '#666'; }}
@@ -60,7 +88,9 @@ export default function DataSourcePanel() {
             </button>
           </div>
 
-          <p style={{ fontSize: 14, color: '#888', marginBottom: 0 }}>Manage and bind external data to your label elements.</p>
+          <p style={{ fontSize: 14, color: '#888', marginBottom: 0 }}>
+            Data sources connected to the current label. Import a file to bind its columns to elements.
+          </p>
 
           <button className="btn" onClick={() => setIsModalOpen(true)}
             style={{
@@ -77,7 +107,7 @@ export default function DataSourcePanel() {
 
           <DataImportModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
 
-          {sources.length === 0 ? (
+          {tabSources.length === 0 ? (
             <div style={{
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
               padding: '60px 0', border: '2px dashed #f0f0f2', borderRadius: 16, background: '#fafafb'
@@ -86,15 +116,43 @@ export default function DataSourcePanel() {
                 <Database size={48} strokeWidth={1} />
               </div>
               <div style={{ fontSize: 14, color: '#aaa', textAlign: 'center', maxWidth: 280, lineHeight: 1.6 }}>
-                No records connected yet. Load a <b>CSV</b>, <b>Excel</b> or <b>JSON</b> file to start batching.
+                No data source connected to this label. Load a <b>CSV</b>, <b>Excel</b> or <b>JSON</b> file to start batching.
               </div>
+              {sources.length > 0 && (
+                <div style={{ marginTop: 8, textAlign: 'center' }}>
+                  <div style={{ fontSize: 12, color: '#bbb', marginBottom: 10 }}>
+                    Or connect an existing source:
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    {sources.map(s => (
+                      <button key={s.id} onClick={() => {
+                        setActiveSource(s.id);
+                      }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                          background: '#fff', border: '1.5px solid #e5e5ea', borderRadius: 10,
+                          cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#555',
+                          transition: 'all 0.15s'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#6366f1'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#e5e5ea'; e.currentTarget.style.color = '#555'; }}>
+                        <FileText size={14} />
+                        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {(s.path || '').split(/[/\\]/).pop() || s.name || 'Untitled'}
+                        </span>
+                        <span style={{ color: '#bbb', fontWeight: 400 }}>({s.rowCount} rows)</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-              {/* Refined Source Tabs */}
+              {/* Connected Source Tabs */}
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {sources.map(s => {
-                  const isActive = s.id === activeSourceId;
+                {tabSources.map(s => {
+                  const isActive = s.id === (active?.id);
                   return (
                     <div key={s.id}
                       style={{
@@ -119,31 +177,17 @@ export default function DataSourcePanel() {
                       </div>
 
                       <div style={{ display: 'flex', alignItems: 'center', paddingRight: 6 }}>
-                        {isActive ? (
-                          <button
-                            title="Deselect"
-                            onClick={e => { e.stopPropagation(); setActiveSource(''); }}
-                            style={{
-                              background: 'none', border: 'none', padding: 8, borderRadius: 8,
-                              color: '#aaa', cursor: 'pointer', display: 'flex', transition: 'all 0.2s'
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#e2e2e5'; e.currentTarget.style.color = '#666'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#aaa'; }}>
-                            <X size={16} />
-                          </button>
-                        ) : (
-                          <button
-                            title="Remove source"
-                            onClick={e => { e.stopPropagation(); removeSource(s.id); }}
-                            style={{
-                              background: 'none', border: 'none', padding: 8, borderRadius: 8,
-                              color: '#ddd', cursor: 'pointer', display: 'flex', transition: 'all 0.2s'
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#ddd'; }}>
-                            <Trash2 size={16} />
-                          </button>
-                        )}
+                        <button
+                          title="Disconnect from this label"
+                          onClick={e => { e.stopPropagation(); handleDisconnect(s.id); }}
+                          style={{
+                            background: 'none', border: 'none', padding: 8, borderRadius: 8,
+                            color: '#aaa', cursor: 'pointer', display: 'flex', transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.color = '#ef4444'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#aaa'; }}>
+                          <X size={16} />
+                        </button>
                       </div>
                     </div>
                   );
