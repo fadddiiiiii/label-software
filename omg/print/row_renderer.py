@@ -328,10 +328,10 @@ class RowRenderer:
             c.rect(x_pt, y_pt, w_pt, h_pt, fill=0, stroke=1)
         c.restoreState()
 
-        # Text logic: React uses absolute font_size * zoom without shrinking!
-        # elem.font_size is mechanically stored as Web Pixels (96dpi).
-        # To convert Web Pixels to PDF Points (72dpi), we multiply by 72/96 = 0.75.
-        start_fs = float(elem.font_size) * 0.75
+        # elem.font_size is stored as typographic points (pt).
+        # ReportLab uses points natively, so no conversion needed.
+        # This matches every other label software: "12" = 12pt = 4.23mm.
+        start_fs = float(elem.font_size)
         
         base_font = elem.font_name or "Helvetica"
         # Check multiple field names — frontend sends font_bold, bold, and/or font_weight

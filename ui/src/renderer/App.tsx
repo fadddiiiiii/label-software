@@ -96,12 +96,14 @@ export default function App() {
     const tab = tabs.find(t => t.id === activeTabId);
     if (tab) {
       const ds = useDataStore.getState();
-      // Only update if actually different to avoid cycles
+      // Directly update the data store's active source to match the tab.
+      // Do NOT use ds.setActiveSource() here — it writes back to the tab
+      // store, which would re-trigger this effect in a loop.
       if (ds.activeSourceId !== tab.activeSourceId) {
-        ds.setActiveSource(tab.activeSourceId);
+        useDataStore.setState({ activeSourceId: tab.activeSourceId });
       }
       if (ds.currentPreviewRow !== tab.currentPreviewRow) {
-        ds.setPreviewRow(tab.currentPreviewRow);
+        useDataStore.setState({ currentPreviewRow: tab.currentPreviewRow });
       }
     }
   }, [activeTabId, tabs]);

@@ -119,15 +119,20 @@ export function ElementShape({
     return pos;
   };
 
-  // Barcode loading
+  // Barcode loading — only render when there's actual data
   useEffect(() => {
     let active = true;
     if (elem.type === 'barcode' || elem.type === 'qrcode') {
-      const data = displayValue || (elem.type === 'qrcode' ? 'https://omg.com' : '12345678');
+      // If no value and no binding, show empty placeholder (matches print behavior)
+      if (!displayValue || !displayValue.trim()) {
+        setBarcodeImg(null);
+        setBarcodeStatus('none');
+        return () => { active = false; };
+      }
       const symbology = elem.symbology || (elem.type === 'qrcode' ? 'qrcode' : 'code128');
 
       setBarcodeStatus('loading');
-      renderBarcodeClientSide(symbology, data, w, h).then(url => {
+      renderBarcodeClientSide(symbology, displayValue, w, h).then(url => {
         if (!active) return;
         if (!url) {
           setBarcodeStatus('error');
@@ -223,7 +228,10 @@ export function ElementShape({
   };
 
   let shape: React.ReactNode = null;
-  const computedFontSize = elem.font_size * zoom;
+  // elem.font_size is stored as typographic points (1pt = 1/72 inch).
+  // Konva renders in CSS pixels (1px = 1/96 inch).
+  // Convert: pt × (96/72) = CSS px, then apply zoom.
+  const computedFontSize = elem.font_size * (96 / 72) * zoom;
   const isBold = Number(elem.font_weight) >= 600 || elem.font_weight === 'bold' || elem.text_font_bold;
   const isItalic = elem.font_italic || elem.text_font_italic;
   const fontStyle = isBold && isItalic ? 'bold italic' : isBold ? 'bold' : isItalic ? 'italic' : 'normal';
@@ -253,7 +261,8 @@ export function ElementShape({
     case 'barcode':
     case 'qrcode': {
       const showHumanText = elem.show_text && elem.type === 'barcode';
-      const barcodeData = displayValue || (elem.type === 'qrcode' ? 'https://omg.com' : '12345678');
+      const barcodeData = displayValue || '';
+      const hasData = !!barcodeData.trim();
       const textFontSize = Math.max(6, (elem.text_font_size_mm || 2.5) * MM_TO_PX * zoom);
       const barH = showHumanText ? Math.max(h * 0.1, h - textFontSize - 2 * zoom) : h;
       const textH = h - barH;

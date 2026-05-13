@@ -296,6 +296,17 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                         # Free the MuPDF pixmap immediately
                         pix = None
 
+                        # ── CRITICAL: Convert to pure black/white ──
+                        # Thermal printers are 1-bit devices — they can only
+                        # print black or not-black. MuPDF renders text with
+                        # grey anti-aliased edge pixels. The printer drops
+                        # these grey pixels, causing broken/gap characters.
+                        # Converting to 1-bit with a threshold produces solid,
+                        # crisp text edges with no grey artifacts.
+                        img = img.convert('L')           # RGB → greyscale
+                        img = img.point(lambda x: 0 if x < 180 else 255, '1')  # threshold → B/W
+                        img = img.convert('RGB')         # back to RGB for GDI Dib
+
                         hDC.StartPage()
 
                         # ── Map the high-DPI render to fill the printer area ──
