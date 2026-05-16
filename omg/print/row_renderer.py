@@ -28,6 +28,134 @@ from xml.sax.saxutils import escape
 from omg.core.template_engine import TemplateDocument, CanvasElement, SheetLayout
 from omg.core.barcode_engine import BarcodeRenderer
 
+# ── TrueType Font Registration ──────────────────────────────────────
+# Register system TrueType fonts so ReportLab renders the actual font
+# the user selected (e.g. Arial) instead of falling back to Helvetica.
+# This is critical for print quality — TrueType fonts have proper
+# hinting and the correct stroke weights.
+
+import os
+import platform
+
+def _get_system_font_dirs():
+    """Return a list of directories that contain system fonts."""
+    dirs = []
+    system = platform.system()
+    if system == "Windows":
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        dirs.append(os.path.join(windir, "Fonts"))
+        # User fonts (Windows 10+)
+        localappdata = os.environ.get("LOCALAPPDATA", "")
+        if localappdata:
+            dirs.append(os.path.join(localappdata, "Microsoft", "Windows", "Fonts"))
+    elif system == "Darwin":
+        dirs.extend(["/System/Library/Fonts", "/Library/Fonts",
+                      os.path.expanduser("~/Library/Fonts")])
+    else:
+        dirs.extend(["/usr/share/fonts", "/usr/local/share/fonts",
+                      os.path.expanduser("~/.fonts"),
+                      os.path.expanduser("~/.local/share/fonts")])
+    return [d for d in dirs if os.path.isdir(d)]
+
+
+def _find_ttf(name, font_dirs):
+    """Find a .ttf file matching the given name in system font dirs."""
+    # Common filename patterns for a given font name
+    # e.g. "Arial" -> ["arial.ttf", "Arial.ttf", "ARIAL.TTF"]
+    clean = name.replace(" ", "")
+    candidates = [
+        f"{name}.ttf", f"{name.lower()}.ttf", f"{clean}.ttf", f"{clean.lower()}.ttf",
+        f"{name}.TTF", f"{clean}.TTF",
+    ]
+    for d in font_dirs:
+        for candidate in candidates:
+            path = os.path.join(d, candidate)
+            if os.path.isfile(path):
+                return path
+        # Also search subdirectories one level deep
+        try:
+            for sub in os.listdir(d):
+                subdir = os.path.join(d, sub)
+                if os.path.isdir(subdir):
+                    for candidate in candidates:
+                        path = os.path.join(subdir, candidate)
+                        if os.path.isfile(path):
+                            return path
+        except OSError:
+            pass
+    return None
+
+
+def _register_system_fonts():
+    """Register common TrueType fonts from the OS for use in ReportLab."""
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    font_dirs = _get_system_font_dirs()
+    if not font_dirs:
+        logger.debug("No system font directories found")
+        return
+
+    # Map: ReportLab font name -> (regular_filename, bold, italic, bolditalic)
+    # We try common filename patterns for each font family.
+    FONT_MAP = {
+        "Arial":      ("arial", "arialbd", "ariali", "arialbi"),
+        "Inter":      ("Inter-Regular", "Inter-Bold", "Inter-Italic", "Inter-BoldItalic"),
+        "Lato":       ("Lato-Regular", "Lato-Bold", "Lato-Italic", "Lato-BoldItalic"),
+        "Montserrat": ("Montserrat-Regular", "Montserrat-Bold", "Montserrat-Italic", "Montserrat-BoldItalic"),
+        "Nunito":     ("Nunito-Regular", "Nunito-Bold", "Nunito-Italic", "Nunito-BoldItalic"),
+        "Open Sans":  ("OpenSans-Regular", "OpenSans-Bold", "OpenSans-Italic", "OpenSans-BoldItalic"),
+        "Oswald":     ("Oswald-Regular", "Oswald-Bold", "Oswald-Italic", "Oswald-BoldItalic"),
+        "Poppins":    ("Poppins-Regular", "Poppins-Bold", "Poppins-Italic", "Poppins-BoldItalic"),
+        "Raleway":    ("Raleway-Regular", "Raleway-Bold", "Raleway-Italic", "Raleway-BoldItalic"),
+        "Roboto":     ("Roboto-Regular", "Roboto-Bold", "Roboto-Italic", "Roboto-BoldItalic"),
+    }
+
+    registered = 0
+    for family, (reg, bold, italic, bi) in FONT_MAP.items():
+        reg_path = _find_ttf(reg, font_dirs)
+        if not reg_path:
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(family, reg_path))
+            registered += 1
+
+            # Bold
+            bold_path = _find_ttf(bold, font_dirs)
+            if bold_path:
+                pdfmetrics.registerFont(TTFont(f"{family}-Bold", bold_path))
+
+            # Italic
+            italic_path = _find_ttf(italic, font_dirs)
+            if italic_path:
+                pdfmetrics.registerFont(TTFont(f"{family}-Oblique", italic_path))
+
+            # Bold Italic
+            bi_path = _find_ttf(bi, font_dirs)
+            if bi_path:
+                pdfmetrics.registerFont(TTFont(f"{family}-BoldOblique", bi_path))
+
+            # Register the font family mapping for ReportLab
+            from reportlab.pdfbase.pdfmetrics import registerFontFamily
+            registerFontFamily(family,
+                               normal=family,
+                               bold=f"{family}-Bold" if bold_path else family,
+                               italic=f"{family}-Oblique" if italic_path else family,
+                               boldItalic=f"{family}-BoldOblique" if bi_path else family)
+
+            logger.debug(f"Registered TTF font: {family} ({reg_path})")
+        except Exception as e:
+            logger.debug(f"Could not register font {family}: {e}")
+
+    logger.info(f"Registered {registered} TrueType font families from system")
+
+# Run font registration at module load time
+try:
+    _register_system_fonts()
+except Exception as e:
+    logger.warning(f"Font registration failed (non-fatal): {e}")
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def mm_to_pt(mm_val): return mm_val * 2.83464567

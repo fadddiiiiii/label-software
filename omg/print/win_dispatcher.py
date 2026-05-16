@@ -256,13 +256,12 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 f"printable area={printer_w}x{printer_h} dots"
             )
 
-            # ── HIGH-QUALITY RASTERIZATION ──
-            # Render at 3× the printer's native DPI (minimum 600 DPI).
-            # This is critical because text at native 203 DPI looks broken
-            # and faded. The printer driver handles the high-to-native DPI
-            # downscaling using its own dithering, producing far crisper
-            # output than a low-res source bitmap.
-            render_dpi = max(printer_dpi_x * 3, 600)
+            # ── HIGH-QUALITY RASTERIZATION FOR THERMAL PRINTERS ──
+            # Strategy: render at high DPI for clean font shapes, then
+            # downscale to exact printer resolution with LANCZOS, then
+            # convert to pure 1-bit B/W at the printer's native DPI.
+            # This avoids GDI scaling artifacts that cause faded text.
+            render_dpi = 600
             zoom = render_dpi / 72.0
             mat = fitz.Matrix(zoom, zoom)
 
@@ -276,7 +275,8 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
             logger.info(
                 f"GDI: {total_pages} page(s), {copies} copies → '{printer_name}' "
-                f"(streaming at {render_dpi} DPI for {printer_dpi_x} DPI printer)"
+                f"(render {render_dpi} DPI → {printer_dpi_x} DPI printer, "
+                f"target {printer_w}×{printer_h} dots)"
             )
 
             page_errors = 0
@@ -287,39 +287,34 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 for page_idx in range(total_pages):
                     try:
                         # ── STREAM: Rasterize one page at a time ──
-                        # This keeps peak memory to ~1 image instead of
-                        # loading ALL pages (500 × 8 MB = 4 GB) at once.
                         page = doc[page_idx]
                         pix = page.get_pixmap(matrix=mat, alpha=False)
                         img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-
-                        # Free the MuPDF pixmap immediately
                         pix = None
 
-                        # ── CRITICAL: Convert to pure black/white ──
-                        # Thermal printers are 1-bit devices — they can only
-                        # print black or not-black. MuPDF renders text with
-                        # grey anti-aliased edge pixels. The printer drops
-                        # these grey pixels, causing broken/gap characters.
-                        # Converting to 1-bit with a threshold produces solid,
-                        # crisp text edges with no grey artifacts.
-                        img = img.convert('L')           # RGB → greyscale
-                        img = img.point(lambda x: 0 if x < 180 else 255, '1')  # threshold → B/W
-                        img = img.convert('RGB')         # back to RGB for GDI Dib
+                        # ── Step 1: Downscale to exact printer resolution ──
+                        # LANCZOS preserves font shapes and thin strokes during
+                        # the downscale. This MUST happen before binarization
+                        # so anti-aliased edges are properly averaged down.
+                        if img.size != (printer_w, printer_h):
+                            img = img.resize((printer_w, printer_h), Image.LANCZOS)
+
+                        # ── Step 2: Convert to pure 1-bit black/white ──
+                        # Thermal printers are binary — they print black dots
+                        # or nothing. Grey anti-aliased pixels appear as gaps.
+                        # Threshold at 128 (midpoint) captures all text edges.
+                        # A lower value (e.g. 100) makes text bolder/thicker.
+                        img = img.convert('L')
+                        img = img.point(lambda x: 0 if x < 128 else 255)
+                        img = img.convert('RGB')
 
                         hDC.StartPage()
 
-                        # ── Map the high-DPI render to fill the printer area ──
-                        img_w, img_h = img.size
-                        scale_x = printer_w / img_w if img_w > 0 else 1.0
-                        scale_y = printer_h / img_h if img_h > 0 else 1.0
-                        scale = min(scale_x, scale_y)
-
-                        dest_w = int(img_w * scale)
-                        dest_h = int(img_h * scale)
-
+                        # ── Step 3: Send at 1:1 — no GDI scaling ──
+                        # Image is already exactly printer_w × printer_h,
+                        # so every pixel maps to one printer dot. No blur.
                         dib = ImageWin.Dib(img)
-                        dib.draw(hDC.GetHandleOutput(), (0, 0, dest_w, dest_h))
+                        dib.draw(hDC.GetHandleOutput(), (0, 0, printer_w, printer_h))
 
                         hDC.EndPage()
 
