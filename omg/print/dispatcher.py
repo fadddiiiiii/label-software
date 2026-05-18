@@ -37,3 +37,14 @@ class AbstractPrintDispatcher(ABC):
         Returns True on success, raises on failure.
         """
         ...
+
+    def print_direct(self, template: typing.Any, row_data_list: list,
+                     printer_name: str, copies: int = 1,
+                     label_config: typing.Any = None) -> bool:
+        """Render elements directly to the printer via native API (e.g. GDI).
+
+        This bypasses the PDF→bitmap pipeline entirely, producing
+        native font quality. Returns True on success, False if not
+        supported (caller should fall back to print_pdf).
+        """
+        return False  # Not supported by default; subclasses override

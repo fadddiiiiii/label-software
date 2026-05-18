@@ -311,15 +311,14 @@ class BatchController:
             logger.info(f"PDF results saved to: {output_path} ({len(merged)} bytes)")
             
             # DIRECT OS PRINT DISPATCH:
-            # Send the merged PDF directly to the OS print spooler.
-            # macOS: uses `lp -d PRINTER file.pdf` via CUPS
-            # Windows: uses SumatraPDF or Win32 spooler
+            # Try direct GDI rendering first (native font quality),
+            # then fall back to PDF→bitmap pipeline.
             if printer_name != "PDF" and print_mode == "pdf":
                 try:
                     from omg.platform_utils import get_print_dispatcher
                     from copy import deepcopy
                     
-                    # Ensure OS form logic receives the FULL sheet dimensions, not a single label, if printing 2-across/etc.
+                    # Ensure OS form logic receives the FULL sheet dimensions
                     dispatch_label_config = deepcopy(self.template.label)
                     single_label_override = (row_range == 1) and (copies_per_label == 1) and (printer_name != "PDF")
                     effective_sheet_mode = use_sheet_mode and not single_label_override
@@ -328,8 +327,33 @@ class BatchController:
                         dispatch_label_config.height_mm = layout.page_height_mm
                         
                     dispatcher = get_print_dispatcher()
-                    dispatcher.print_pdf(merged, printer_name, copies=copies_per_label, label_config=dispatch_label_config)
-                    logger.info(f"PDF dispatched to OS spooler for '{printer_name}' ({len(merged)} bytes) with dims {dispatch_label_config.width_mm}x{dispatch_label_config.height_mm}")
+
+                    # ── Tier 0: Direct GDI (native font quality) ──
+                    # Collect all row data for direct rendering.
+                    # This bypasses PDF→bitmap entirely for text.
+                    direct_success = False
+                    if not effective_sheet_mode:
+                        try:
+                            all_row_data = []
+                            for idx in range(actual_start, actual_end):
+                                rd = self.resolver.resolve_row(self.bindings, idx)
+                                for _c in range(copies_per_label):
+                                    all_row_data.append(rd)
+                            direct_success = dispatcher.print_direct(
+                                self.template, all_row_data, printer_name,
+                                copies=1,  # copies already expanded in all_row_data
+                                label_config=dispatch_label_config
+                            )
+                            if direct_success:
+                                logger.info(f"DirectGDI dispatched {len(all_row_data)} labels to '{printer_name}'")
+                        except Exception as gdi_err:
+                            logger.debug(f"DirectGDI not available, falling back to PDF: {gdi_err}")
+
+                    # ── Fallback: PDF→bitmap pipeline ──
+                    if not direct_success:
+                        dispatcher.print_pdf(merged, printer_name, copies=copies_per_label, label_config=dispatch_label_config)
+                        logger.info(f"PDF dispatched to OS spooler for '{printer_name}' ({len(merged)} bytes)")
+
                 except Exception as e:
                     logger.error(f"OS Print dispatch failed: {e}")
                     self.progress.status = JobStatus.FAILED
