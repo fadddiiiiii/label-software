@@ -505,28 +505,55 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         label_w_mm = template.label.width_mm if label_config is None else label_config.width_mm
         label_h_mm = template.label.height_mm if label_config is None else label_config.height_mm
 
-        # Create printer DC
+        # ── Create printer DC with correct paper dimensions ──
+        # Must use win32gui.CreateDC("WINSPOOL", ..., devmode) to apply
+        # custom paper size. Plain CreatePrinterDC ignores DEVMODE.
         hDC = win32ui.CreateDC()
 
-        # Try to register a custom form for exact label dimensions
-        try:
-            form_name = self._register_custom_form(None, printer_name, label_w_mm, label_h_mm)
-            if form_name:
-                hprinter = None
-                try:
-                    hprinter = win32print.OpenPrinter(printer_name)
-                    devmode = win32print.GetPrinter(hprinter, 2)["pDevMode"]
-                    devmode.FormName = form_name
-                    devmode.Fields |= 0x10000  # DM_FORMNAME
+        if label_config or template.label:
+            hprinter = None
+            try:
+                import win32gui
+                hprinter = win32print.OpenPrinter(printer_name)
+                printer_info = win32print.GetPrinter(hprinter, 2)
+                devmode = printer_info.get('pDevMode')
+
+                if devmode:
+                    # Set custom paper dimensions in tenths of mm
+                    devmode.PaperSize = 256  # DMPAPER_USER
+                    devmode.PaperWidth = int(label_w_mm * 10)
+                    devmode.PaperLength = int(label_h_mm * 10)
+                    devmode.Orientation = 1  # DMORIENT_PORTRAIT
+                    devmode.Fields |= (
+                        win32con.DM_PAPERSIZE |
+                        win32con.DM_PAPERLENGTH |
+                        win32con.DM_PAPERWIDTH |
+                        win32con.DM_ORIENTATION
+                    )
+
+                    # Also try to set the custom form if available
+                    try:
+                        form_name = self._register_custom_form(None, printer_name, label_w_mm, label_h_mm)
+                        if form_name:
+                            devmode.FormName = form_name
+                            devmode.Fields |= 0x10000  # DM_FORMNAME
+                    except Exception:
+                        pass
+
+                    # Create DC with the configured DEVMODE
+                    hdc_handle = win32gui.CreateDC("WINSPOOL", printer_name, devmode)
+                    hDC = win32ui.CreateDCFromHandle(hdc_handle)
+                    logger.info(f"DirectGDI: Applied custom page size {label_w_mm}x{label_h_mm}mm via DEVMODE")
+                else:
                     hDC.CreatePrinterDC(printer_name)
-                except Exception:
-                    hDC.CreatePrinterDC(printer_name)
-                finally:
-                    if hprinter:
-                        win32print.ClosePrinter(hprinter)
-            else:
+            except Exception as e:
+                logger.warning(f"DirectGDI: DEVMODE setup failed ({e}), using driver defaults")
+                hDC = win32ui.CreateDC()
                 hDC.CreatePrinterDC(printer_name)
-        except Exception:
+            finally:
+                if hprinter:
+                    win32print.ClosePrinter(hprinter)
+        else:
             hDC.CreatePrinterDC(printer_name)
 
         try:
@@ -538,7 +565,8 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             logger.info(
                 f"DirectGDI: {len(row_data_list)} labels, {copies} copies "
                 f"→ '{printer_name}' ({dpi_x}×{dpi_y} DPI, "
-                f"{printer_w}×{printer_h} dots)"
+                f"{printer_w}×{printer_h} dots, "
+                f"page={label_w_mm}×{label_h_mm}mm)"
             )
 
             sorted_elements = sorted(template.elements, key=lambda e: e.z_index)
@@ -546,9 +574,10 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             for copy_num in range(copies):
                 hDC.StartDoc("OMG Labels")
 
-                for row_data in row_data_list:
+                for row_idx, row_data in enumerate(row_data_list):
                     hDC.StartPage()
 
+                    drawn = 0
                     for elem in sorted_elements:
                         if getattr(elem, 'hidden', False) or getattr(elem, 'do_not_print', False):
                             continue
@@ -558,14 +587,33 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                         try:
                             if elem.type == "text":
                                 self._gdi_draw_text(hDC, elem, value, dpi_x, dpi_y)
+                                drawn += 1
                             elif elem.type in ("barcode", "qrcode"):
                                 self._gdi_draw_barcode(hDC, elem, value, dpi_x, dpi_y)
+                                drawn += 1
                             elif elem.type == "rect":
                                 self._gdi_draw_rect(hDC, elem, dpi_x, dpi_y)
+                                drawn += 1
                             elif elem.type == "line":
                                 self._gdi_draw_line(hDC, elem, dpi_x, dpi_y)
+                                drawn += 1
+                            elif elem.type == "circle":
+                                self._gdi_draw_circle(hDC, elem, dpi_x, dpi_y)
+                                drawn += 1
+                            elif elem.type == "image":
+                                self._gdi_draw_image(hDC, elem, dpi_x, dpi_y)
+                                drawn += 1
                         except Exception as draw_err:
-                            logger.warning(f"DirectGDI element {elem.id} error: {draw_err}")
+                            logger.error(f"DirectGDI element {elem.id} ({elem.type}) failed: {draw_err}", exc_info=True)
+
+                    if row_idx == 0:
+                        logger.info(f"DirectGDI: first label drew {drawn} elements, {len(sorted_elements)} total")
+                        if drawn == 0 and len(sorted_elements) > 0:
+                            # Nothing rendered — abort and fall back to PDF path
+                            logger.warning("DirectGDI: 0 elements drawn on first label, aborting → PDF fallback")
+                            hDC.EndPage()
+                            hDC.EndDoc()
+                            return False
 
                     hDC.EndPage()
 
@@ -583,7 +631,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
     def _gdi_draw_text(self, hDC, elem, value, dpi_x, dpi_y):
         """Draw a text element using native GDI font rendering."""
-        import win32ui, win32con, win32gui
+        import win32ui, win32con
 
         text = str(value) if value else ""
         if not text:
@@ -612,27 +660,25 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         font_name = elem.font_name or "Arial"
 
         # Create GDI font
-        font_spec = {
+        font = win32ui.CreateFont({
             "name": font_name,
             "height": font_height,
             "weight": weight,
             "italic": 1 if is_italic else 0,
             "underline": 1 if getattr(elem, 'underline', False) else 0,
             "strike out": 1 if getattr(elem, 'strikeout', False) else 0,
-            "charset": 0,  # DEFAULT_CHARSET
-            "quality": 4,  # ANTIALIASED_QUALITY for non-thermal;
-                           # printer driver will use its own rendering
-        }
-
-        font = win32ui.CreateFont(font_spec)
+        })
         old_font = hDC.SelectObject(font)
 
         # Set text color
         color_hex = getattr(elem, 'color', '#000000') or '#000000'
-        r = int(color_hex[1:3], 16)
-        g = int(color_hex[3:5], 16)
-        b = int(color_hex[5:7], 16)
-        hDC.SetTextColor(r | (g << 8) | (b << 16))  # Win32 RGB
+        try:
+            r = int(color_hex[1:3], 16)
+            g = int(color_hex[3:5], 16)
+            b = int(color_hex[5:7], 16)
+            hDC.SetTextColor(r | (g << 8) | (b << 16))
+        except Exception:
+            hDC.SetTextColor(0)  # Black fallback
 
         # Transparent background for text
         hDC.SetBkMode(win32con.TRANSPARENT)
@@ -648,20 +694,29 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         else:
             flags |= win32con.DT_LEFT
 
-        # Vertical alignment: first measure text height, then adjust y
+        # Base rectangle
         rect = (x, y, x + w, y + h)
 
+        # Vertical alignment: measure text height, then adjust y
         va = getattr(elem, 'vertical_align', 'middle')
         if va in ('middle', 'bottom'):
-            # Measure text height without drawing
-            calc_rect = hDC.DrawText(text, rect,
-                                      flags | win32con.DT_CALCRECT)
-            text_h = calc_rect[1][3] - calc_rect[1][1]  # bottom - top of calc rect
-            if va == 'middle':
-                y_offset = max(0, (h - text_h) // 2)
-            else:  # bottom
-                y_offset = max(0, h - text_h)
-            rect = (x, y + y_offset, x + w, y + h)
+            try:
+                # DT_CALCRECT measures without drawing; returns vary by pywin32 version
+                result = hDC.DrawText(text, (x, y, x + w, y + 10000), flags | win32con.DT_CALCRECT)
+                # result is either (height, rect_tuple) or just height
+                if isinstance(result, tuple) and len(result) == 2:
+                    text_h = result[0]  # height in first element
+                elif isinstance(result, int):
+                    text_h = result
+                else:
+                    text_h = h  # fallback
+                if va == 'middle':
+                    y_offset = max(0, (h - text_h) // 2)
+                else:
+                    y_offset = max(0, h - text_h)
+                rect = (x, y + y_offset, x + w, y + h)
+            except Exception:
+                pass  # use default rect (top-aligned)
 
         # Draw text
         hDC.DrawText(text, rect, flags)
@@ -671,7 +726,8 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         font.DeleteObject()
 
     def _gdi_draw_barcode(self, hDC, elem, value, dpi_x, dpi_y):
-        """Draw a barcode by rendering to a high-DPI bitmap and blitting."""
+        """Draw a barcode by rendering to a PIL image and blitting to GDI."""
+        import win32ui, win32con
         from PIL import Image, ImageWin
 
         barcode_str = str(value).strip() if value and str(value).strip() else ""
@@ -683,56 +739,86 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         w = self._mm_to_dev(elem.width_mm, dpi_x)
         h = self._mm_to_dev(elem.height_mm, dpi_y)
 
+        sym = elem.symbology or ("qrcode" if elem.type == 'qrcode' else "code128")
+        show_text = getattr(elem, 'show_text', True) and elem.type == 'barcode'
+        text_fs_mm = getattr(elem, 'text_font_size_mm', 2.5)
+
+        if show_text:
+            text_h_mm = text_fs_mm + 0.5
+            bar_h_mm = max(elem.height_mm * 0.1, elem.height_mm - text_h_mm)
+        else:
+            bar_h_mm = elem.height_mm
+
+        bar_dev_h = self._mm_to_dev(bar_h_mm, dpi_y)
+        text_on_top = getattr(elem, 'text_on_top', False)
+        bar_y = y + (self._mm_to_dev(elem.height_mm - bar_h_mm, dpi_y) if not text_on_top and show_text else 0)
+
+        # ── Render barcode image ──
+        barcode_img = None
         try:
-            from omg.core.barcode_engine import BarcodeRenderer
-            from reportlab.graphics import renderPM
-
-            sym = elem.symbology or ("qrcode" if elem.type == 'qrcode' else "code128")
-
-            # Determine bar area vs text area
-            show_text = getattr(elem, 'show_text', True) and elem.type == 'barcode'
-            text_fs_mm = getattr(elem, 'text_font_size_mm', 2.5)
-
-            if show_text:
-                text_h_mm = text_fs_mm + 0.5
-                bar_h_mm = max(elem.height_mm * 0.1, elem.height_mm - text_h_mm)
+            if sym == 'qrcode':
+                import qrcode
+                qr = qrcode.QRCode(box_size=10, border=0)
+                qr.add_data(barcode_str)
+                qr.make(fit=True)
+                barcode_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
             else:
-                bar_h_mm = elem.height_mm
+                # Use python-barcode's ImageWriter for direct PIL output
+                import barcode as barcode_lib
+                from barcode.writer import ImageWriter
+                barcode_map = {
+                    "code128": "code128", "code39": "code39",
+                    "ean13": "ean13", "ean8": "ean8", "itf14": "itf",
+                    "gs1_128": "code128",
+                }
+                bc_name = barcode_map.get(sym.lower(), sym.lower())
+                writer = ImageWriter()
+                code_obj = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer)
+                barcode_img = code_obj.render({
+                    'module_height': bar_h_mm,
+                    'write_text': False,
+                    'quiet_zone': 0,
+                    'text_distance': 0,
+                    'dpi': max(dpi_x, 300),
+                })
+                if barcode_img:
+                    barcode_img = barcode_img.convert('RGB')
+        except Exception as bc_err:
+            logger.warning(f"DirectGDI: barcode render ({sym}) failed: {bc_err}")
+            # Fallback: try the ReportLab path
+            try:
+                from omg.core.barcode_engine import BarcodeRenderer
+                from reportlab.graphics import renderPM
+                drawing = BarcodeRenderer.render_reportlab_drawing(
+                    sym, barcode_str, elem.width_mm, bar_h_mm, show_text=False
+                )
+                if drawing:
+                    barcode_img = renderPM.drawToPIL(drawing, dpi=max(dpi_x, 300))
+                    if barcode_img:
+                        barcode_img = barcode_img.convert('RGB')
+            except Exception as fb_err:
+                logger.warning(f"DirectGDI: barcode fallback also failed: {fb_err}")
 
-            drawing = BarcodeRenderer.render_reportlab_drawing(
-                sym, barcode_str, elem.width_mm, bar_h_mm, show_text=False
-            )
+        # Blit barcode image to printer DC
+        if barcode_img:
+            # Convert to 1-bit for crisp bars
+            barcode_img = barcode_img.convert('L').point(lambda px: 0 if px < 128 else 255).convert('RGB')
+            dib = ImageWin.Dib(barcode_img)
+            dib.draw(hDC.GetHandleOutput(), (x, bar_y, x + w, bar_y + bar_dev_h))
 
-            if drawing:
-                # Render barcode drawing to a PIL image at printer DPI
-                render_scale = dpi_x / 72.0
-                img_w = int(drawing.width * render_scale)
-                img_h = int(drawing.height * render_scale)
-                if img_w > 0 and img_h > 0:
-                    img = renderPM.drawToPIL(drawing, dpi=dpi_x)
+        # ── Draw human-readable text below/above barcode ──
+        if show_text and barcode_str:
+            text_y = y if text_on_top else y + self._mm_to_dev(bar_h_mm, dpi_y)
+            text_dev_h = h - self._mm_to_dev(bar_h_mm, dpi_y)
+            if text_dev_h <= 0:
+                return
 
-                    # Convert to 1-bit for crisp barcode bars
-                    img = img.convert('L').point(lambda px: 0 if px < 128 else 255)
-                    img = img.convert('RGB')
+            font_name = getattr(elem, 'text_font_name', 'Arial') or 'Arial'
+            # Convert mm font size to device units
+            font_height = -self._mm_to_dev(text_fs_mm, dpi_y)
+            is_bold = getattr(elem, 'text_font_bold', False)
 
-                    # Calculate barcode position
-                    bar_dev_h = self._mm_to_dev(bar_h_mm, dpi_y)
-                    text_on_top = getattr(elem, 'text_on_top', False)
-                    bar_y = y + (self._mm_to_dev(elem.height_mm - bar_h_mm, dpi_y) if not text_on_top and show_text else 0)
-
-                    dib = ImageWin.Dib(img)
-                    dib.draw(hDC.GetHandleOutput(), (x, bar_y, x + w, bar_y + bar_dev_h))
-
-            # Draw human-readable text below/above barcode using native GDI
-            if show_text and barcode_str:
-                import win32con
-                text_y = y if getattr(elem, 'text_on_top', False) else y + self._mm_to_dev(bar_h_mm, dpi_y)
-                text_dev_h = h - self._mm_to_dev(bar_h_mm, dpi_y)
-
-                font_name = getattr(elem, 'text_font_name', 'Arial') or 'Arial'
-                font_height = -int(round(text_fs_mm / 25.4 * 72 * dpi_y / 72.0))
-                is_bold = getattr(elem, 'text_font_bold', False)
-
+            try:
                 font = win32ui.CreateFont({
                     "name": font_name,
                     "height": font_height,
@@ -756,9 +842,8 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
                 hDC.SelectObject(old_font)
                 font.DeleteObject()
-
-        except Exception as e:
-            logger.warning(f"DirectGDI barcode render failed: {e}")
+            except Exception as txt_err:
+                logger.warning(f"DirectGDI: barcode text failed: {txt_err}")
 
     def _gdi_draw_rect(self, hDC, elem, dpi_x, dpi_y):
         """Draw a rectangle using GDI primitives."""
@@ -816,3 +901,84 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
         hDC.SelectObject(old_pen)
         pen.DeleteObject()
+
+    def _gdi_draw_circle(self, hDC, elem, dpi_x, dpi_y):
+        """Draw an ellipse using GDI."""
+        import win32ui, win32con
+
+        x = self._mm_to_dev(elem.x_mm, dpi_x)
+        y = self._mm_to_dev(elem.y_mm, dpi_y)
+        w = self._mm_to_dev(elem.width_mm, dpi_x)
+        h = self._mm_to_dev(elem.height_mm, dpi_y)
+
+        border_w = max(1, self._mm_to_dev(getattr(elem, 'border_width', 1.0), dpi_x))
+        border_hex = getattr(elem, 'border_color', '#000000') or '#000000'
+        br, bg, bb = int(border_hex[1:3], 16), int(border_hex[3:5], 16), int(border_hex[5:7], 16)
+
+        pen = win32ui.CreatePen(win32con.PS_SOLID, border_w, br | (bg << 8) | (bb << 16))
+        old_pen = hDC.SelectObject(pen)
+
+        filled = getattr(elem, 'filled', False)
+        if filled:
+            fill_hex = getattr(elem, 'fill_color', '#FFFFFF') or '#FFFFFF'
+            fr, fg, fb = int(fill_hex[1:3], 16), int(fill_hex[3:5], 16), int(fill_hex[5:7], 16)
+            brush = win32ui.CreateBrush(win32con.BS_SOLID, fr | (fg << 8) | (fb << 16), 0)
+        else:
+            brush = win32ui.CreateBrush(win32con.BS_NULL, 0, 0)
+        old_brush = hDC.SelectObject(brush)
+
+        hDC.Ellipse((x, y, x + w, y + h))
+
+        hDC.SelectObject(old_pen)
+        hDC.SelectObject(old_brush)
+        pen.DeleteObject()
+        brush.DeleteObject()
+
+    def _gdi_draw_image(self, hDC, elem, dpi_x, dpi_y):
+        """Draw an image element by loading and blitting to GDI."""
+        from PIL import Image, ImageWin
+        import base64
+        import io
+
+        x = self._mm_to_dev(elem.x_mm, dpi_x)
+        y = self._mm_to_dev(elem.y_mm, dpi_y)
+        w = self._mm_to_dev(elem.width_mm, dpi_x)
+        h = self._mm_to_dev(elem.height_mm, dpi_y)
+
+        img = None
+
+        # Try base64 data first
+        b64 = getattr(elem, 'image_b64', None)
+        if b64:
+            try:
+                # Strip data URI prefix if present
+                if ',' in b64:
+                    b64 = b64.split(',', 1)[1]
+                raw = base64.b64decode(b64)
+                img = Image.open(io.BytesIO(raw))
+            except Exception as e:
+                logger.debug(f"DirectGDI: image base64 decode failed: {e}")
+
+        # Fallback to file path
+        if img is None:
+            path = getattr(elem, 'image_path', None)
+            if path:
+                try:
+                    img = Image.open(path)
+                except Exception as e:
+                    logger.debug(f"DirectGDI: image file load failed: {e}")
+
+        if img is None:
+            return
+
+        # Convert and resize
+        img = img.convert('RGB')
+        if img.size != (w, h) and w > 0 and h > 0:
+            img = img.resize((w, h), Image.LANCZOS)
+
+        # Monochrome conversion for thermal
+        if getattr(elem, 'monochrome', False):
+            img = img.convert('L').point(lambda px: 0 if px < 128 else 255).convert('RGB')
+
+        dib = ImageWin.Dib(img)
+        dib.draw(hDC.GetHandleOutput(), (x, y, x + w, y + h))
