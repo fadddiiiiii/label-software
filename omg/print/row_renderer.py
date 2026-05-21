@@ -511,6 +511,9 @@ class RowRenderer:
         va = getattr(elem, 'vertical_align', 'middle')
         top_offset = 0
         if va == "middle":
+            # Match Konva's verticalAlign="middle".
+            # Konva centers text by placing the text block (line_count × line_height)
+            # in the middle of the element height. We replicate this with ReportLab.
             avail_extra = h_pt - p_h
             if avail_extra > 0: top_offset = avail_extra / 2
         elif va == "bottom":
@@ -589,6 +592,10 @@ class RowRenderer:
                 # Frontend: <Group y={showHumanText && elem.text_on_top ? textH : 0}>
                 bars_baseline_y = y_pt + (text_h_pt if not text_on_top and show_text else 0)
                 tx = x_pt + (w_pt - dw * sx) / 2
+                # Clip to bar area so bars cannot bleed into the text region
+                bar_clip = c.beginPath()
+                bar_clip.rect(x_pt, bars_baseline_y, w_pt, bar_h_pt)
+                c.clipPath(bar_clip, stroke=0, fill=0)
                 c.translate(tx, bars_baseline_y)
                 c.scale(sx, sy)
                 renderPDF.draw(drawing, c, 0, 0)
@@ -638,12 +645,19 @@ class RowRenderer:
                 else:
                     text_block_y = y_pt
 
-                # Center text vertically within text_h_pt
-                # Use ascent for accurate baseline positioning (ReportLab draws from baseline)
+                # Center text vertically within text_h_pt using font metrics.
+                # ReportLab's drawString positions text at the *baseline*.
+                # To visually center: baseline = strip_bottom + (strip_h - (ascent+|descent|))/2 + |descent|
                 face = pdfmetrics.getFont(font_name).face
-                ascent_ratio = face.ascent / (face.ascent - face.descent) if (face.ascent - face.descent) != 0 else 0.8
-                text_ascent = text_font_size_pt * ascent_ratio
-                ty = text_block_y + (text_h_pt - text_font_size_pt) / 2.0
+                em_units = face.ascent - face.descent  # total em height in font units
+                if em_units and em_units != 0:
+                    ascent_pt = text_font_size_pt * (face.ascent / em_units)
+                    descent_pt = text_font_size_pt * (abs(face.descent) / em_units)
+                else:
+                    ascent_pt = text_font_size_pt * 0.8
+                    descent_pt = text_font_size_pt * 0.2
+                visible_h = ascent_pt + descent_pt
+                ty = text_block_y + (text_h_pt - visible_h) / 2.0 + descent_pt
 
                 anchor = getattr(elem, 'text_anchor', 'center')
                 if anchor == 'left': 

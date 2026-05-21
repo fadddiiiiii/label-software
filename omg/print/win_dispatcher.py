@@ -659,6 +659,10 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         weight = 700 if is_bold else 400
         font_name = elem.font_name or "Arial"
 
+        # Determine rotation (Konva is CW degrees, GDI is CCW tenths of a degree)
+        rot = getattr(elem, 'rotation', 0.0)
+        esc = int(-rot * 10)
+
         # Create GDI font
         font = win32ui.CreateFont({
             "name": font_name,
@@ -667,6 +671,8 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             "italic": 1 if is_italic else 0,
             "underline": 1 if getattr(elem, 'underline', False) else 0,
             "strike out": 1 if getattr(elem, 'strikeout', False) else 0,
+            "escapement": esc,
+            "orientation": esc,
         })
         old_font = hDC.SelectObject(font)
 
@@ -684,7 +690,10 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         hDC.SetBkMode(win32con.TRANSPARENT)
 
         # Build DrawText flags for alignment and wrapping
-        flags = win32con.DT_WORDBREAK | win32con.DT_NOPREFIX
+        # Note: DT_WORDBREAK doesn't work well with rotated text.
+        flags = win32con.DT_NOPREFIX
+        if rot == 0.0:
+            flags |= win32con.DT_WORDBREAK
 
         align = getattr(elem, 'align', 'left')
         if align == 'center':
@@ -699,7 +708,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
         # Vertical alignment: measure text height, then adjust y
         va = getattr(elem, 'vertical_align', 'middle')
-        if va in ('middle', 'bottom'):
+        if va in ('middle', 'bottom') and rot == 0.0:
             try:
                 # DT_CALCRECT measures without drawing; returns vary by pywin32 version
                 result = hDC.DrawText(text, (x, y, x + w, y + 10000), flags | win32con.DT_CALCRECT)
@@ -709,12 +718,19 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 elif isinstance(result, int):
                     text_h = result
                 else:
-                    text_h = h  # fallback
+                    text_h = abs(font_height)  # fallback
+                
+                # Prevent absurdly large heights from breaking layout
+                if text_h > h * 10:
+                    text_h = abs(font_height)
+
                 if va == 'middle':
                     y_offset = max(0, (h - text_h) // 2)
                 else:
                     y_offset = max(0, h - text_h)
-                rect = (x, y + y_offset, x + w, y + h)
+                
+                # Expand rect bottom if text is taller than bounding box to prevent clipping
+                rect = (x, y + y_offset, x + w, y + y_offset + max(h, text_h))
             except Exception:
                 pass  # use default rect (top-aligned)
 
@@ -751,7 +767,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
         bar_dev_h = self._mm_to_dev(bar_h_mm, dpi_y)
         text_on_top = getattr(elem, 'text_on_top', False)
-        bar_y = y + (self._mm_to_dev(elem.height_mm - bar_h_mm, dpi_y) if not text_on_top and show_text else 0)
+        bar_y = y + (self._mm_to_dev(elem.height_mm - bar_h_mm, dpi_y) if text_on_top and show_text else 0)
 
         # ── Render barcode image ──
         barcode_img = None
