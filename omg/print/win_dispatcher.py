@@ -659,11 +659,10 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         weight = 700 if is_bold else 400
         font_name = elem.font_name or "Arial"
 
-        # Determine rotation (Konva is CW degrees, GDI is CCW tenths of a degree)
         rot = getattr(elem, 'rotation', 0.0)
-        esc = int(-rot * 10)
 
-        # Create GDI font
+        # Create GDI font — do NOT use escapement/orientation for rotation;
+        # DrawText ignores them. We use SetWorldTransform instead.
         font = win32ui.CreateFont({
             "name": font_name,
             "height": font_height,
@@ -671,8 +670,6 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             "italic": 1 if is_italic else 0,
             "underline": 1 if getattr(elem, 'underline', False) else 0,
             "strike out": 1 if getattr(elem, 'strikeout', False) else 0,
-            "escapement": esc,
-            "orientation": esc,
         })
         old_font = hDC.SelectObject(font)
 
@@ -689,11 +686,8 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         # Transparent background for text
         hDC.SetBkMode(win32con.TRANSPARENT)
 
-        # Build DrawText flags for alignment and wrapping
-        # Note: DT_WORDBREAK doesn't work well with rotated text.
-        flags = win32con.DT_NOPREFIX
-        if rot == 0.0:
-            flags |= win32con.DT_WORDBREAK
+        # Build DrawText flags
+        flags = win32con.DT_WORDBREAK | win32con.DT_NOPREFIX
 
         align = getattr(elem, 'align', 'left')
         if align == 'center':
@@ -703,24 +697,69 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
         else:
             flags |= win32con.DT_LEFT
 
-        # Base rectangle
+        # Apply rotation via world transform if needed
+        # Konva rotates CW around the element's top-left corner.
+        # GDI's SetWorldTransform uses a 2×2 matrix + translation.
+        old_mode = None
+        if rot != 0.0:
+            try:
+                import ctypes
+                import math
+
+                # Enable advanced graphics mode (required for SetWorldTransform)
+                gdi32 = ctypes.windll.gdi32
+                hdc_handle = hDC.GetHandleOutput()
+                GM_ADVANCED = 2
+                old_mode = gdi32.SetGraphicsMode(hdc_handle, GM_ADVANCED)
+
+                # Rotation matrix: Konva CW = GDI CW (standard rotation matrix)
+                # Pivot = top-left corner of the element (x, y)
+                angle_rad = math.radians(rot)
+                cos_a = math.cos(angle_rad)
+                sin_a = math.sin(angle_rad)
+
+                # XFORM struct: eM11, eM12, eM21, eM22, eDx, eDy
+                # Rotate CW around (x, y):
+                #   Translate origin to (x,y), rotate, translate back
+                #   Combined: dx = x - x*cos + y*sin, dy = y - x*sin - y*cos
+                class XFORM(ctypes.Structure):
+                    _fields_ = [
+                        ("eM11", ctypes.c_float),
+                        ("eM12", ctypes.c_float),
+                        ("eM21", ctypes.c_float),
+                        ("eM22", ctypes.c_float),
+                        ("eDx", ctypes.c_float),
+                        ("eDy", ctypes.c_float),
+                    ]
+
+                xform = XFORM()
+                xform.eM11 = cos_a
+                xform.eM12 = sin_a
+                xform.eM21 = -sin_a
+                xform.eM22 = cos_a
+                xform.eDx = x - x * cos_a + y * sin_a
+                xform.eDy = y - x * sin_a - y * cos_a
+
+                gdi32.SetWorldTransform(hdc_handle, ctypes.byref(xform))
+            except Exception as rot_err:
+                logger.warning(f"DirectGDI: rotation transform failed: {rot_err}")
+                old_mode = None
+
+        # Base rectangle (always use unrotated coords; transform handles rotation)
         rect = (x, y, x + w, y + h)
 
         # Vertical alignment: measure text height, then adjust y
         va = getattr(elem, 'vertical_align', 'middle')
-        if va in ('middle', 'bottom') and rot == 0.0:
+        if va in ('middle', 'bottom'):
             try:
-                # DT_CALCRECT measures without drawing; returns vary by pywin32 version
                 result = hDC.DrawText(text, (x, y, x + w, y + 10000), flags | win32con.DT_CALCRECT)
-                # result is either (height, rect_tuple) or just height
                 if isinstance(result, tuple) and len(result) == 2:
-                    text_h = result[0]  # height in first element
+                    text_h = result[0]
                 elif isinstance(result, int):
                     text_h = result
                 else:
-                    text_h = abs(font_height)  # fallback
-                
-                # Prevent absurdly large heights from breaking layout
+                    text_h = abs(font_height)
+
                 if text_h > h * 10:
                     text_h = abs(font_height)
 
@@ -728,14 +767,36 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                     y_offset = max(0, (h - text_h) // 2)
                 else:
                     y_offset = max(0, h - text_h)
-                
-                # Expand rect bottom if text is taller than bounding box to prevent clipping
+
                 rect = (x, y + y_offset, x + w, y + y_offset + max(h, text_h))
             except Exception:
-                pass  # use default rect (top-aligned)
+                pass
 
         # Draw text
         hDC.DrawText(text, rect, flags)
+
+        # Restore world transform
+        if old_mode is not None:
+            try:
+                import ctypes
+
+                class XFORM(ctypes.Structure):
+                    _fields_ = [
+                        ("eM11", ctypes.c_float),
+                        ("eM12", ctypes.c_float),
+                        ("eM21", ctypes.c_float),
+                        ("eM22", ctypes.c_float),
+                        ("eDx", ctypes.c_float),
+                        ("eDy", ctypes.c_float),
+                    ]
+
+                gdi32 = ctypes.windll.gdi32
+                hdc_handle = hDC.GetHandleOutput()
+                identity = XFORM(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+                gdi32.SetWorldTransform(hdc_handle, ctypes.byref(identity))
+                gdi32.SetGraphicsMode(hdc_handle, old_mode)
+            except Exception:
+                pass
 
         # Cleanup
         hDC.SelectObject(old_font)
