@@ -63,7 +63,8 @@ export default function BatchConsole() {
     }
   }, [showKeyboardInput, pendingKeyboard]);
 
-  if (!showBatchConsole) return null;
+  // ── All function/const declarations MUST be above the early return ──
+  // (otherwise they're in the Temporal Dead Zone when useEffect fires)
 
   const percent = progress.totalRows > 0
     ? ((progress.completedRows + progress.errorRows) / progress.totalRows * 100).toFixed(1)
@@ -108,16 +109,6 @@ export default function BatchConsole() {
     return { startRow, endRow, totalToPrint };
   };
 
-  const handlePrint = async () => {
-    const kbBindings = bindings.filter(b => b.type === 'keyboard');
-    if (kbBindings.length > 0) {
-      setPendingKeyboard(true);
-      setShowKeyboardInput(true);
-      return;
-    }
-    startBatch();
-  };
-
   const startBatch = async () => {
     const { startRow, endRow, totalToPrint } = getRowRange();
     if (totalToPrint <= 0) return;
@@ -150,6 +141,16 @@ export default function BatchConsole() {
     } catch (err: any) {
       setProgress({ status: 'failed', errors: [{ rowIndex: 0, message: err.message }] });
     }
+  };
+
+  const handlePrint = async () => {
+    const kbBindings = bindings.filter(b => b.type === 'keyboard');
+    if (kbBindings.length > 0) {
+      setPendingKeyboard(true);
+      setShowKeyboardInput(true);
+      return;
+    }
+    startBatch();
   };
 
   const exportPdf = async () => {
@@ -201,6 +202,9 @@ export default function BatchConsole() {
   };
 
   const maxRows = active?.rowCount ?? 0;
+
+  // Early return MUST be after all function declarations to avoid TDZ errors
+  if (!showBatchConsole) return null;
 
   return (
     <div style={{
