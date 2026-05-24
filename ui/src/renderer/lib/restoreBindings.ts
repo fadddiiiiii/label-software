@@ -7,8 +7,7 @@
 // FieldBinding objects so that toDocument() can re-attach them at print time.
 // ═══════════════════════════════════════════════════════════════════
 
-import type { FieldBinding } from '../store/data';
-import type { SerialNumberConfig } from '../types/template';
+import type { FieldBinding, SerialNumberConfig } from '../types/template';
 
 /**
  * Given raw element objects from a loaded .lft document,

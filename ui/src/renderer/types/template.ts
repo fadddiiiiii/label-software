@@ -228,6 +228,34 @@ export interface TemplateDocument {
   print_settings?: PrintSettings;
 }
 
+// ── FieldBinding ──────────────────────────────────────────────────
+// Moved here from data.ts to break the circular dependency chain:
+//   data.ts → tabs.ts → restoreBindings.ts → data.ts
+// This type must live in a module with ZERO store imports.
+// ──────────────────────────────────────────────────────────────────
+export interface FieldBinding {
+  fieldId: string;
+  type: 'database' | 'keyboard' | 'serial' | 'date' | 'time' | 'fixed' | 'programming';
+  sourceId?: string;
+  column?: string;
+  formula?: string;
+  // Keyboard
+  promptLabel?: string;
+  defaultValue?: string;
+  resetPerJob?: boolean;
+  resetPerRow?: boolean;
+  // Serial
+  serialId?: string; // Reference to global serialConfigs
+  serialConfig?: SerialNumberConfig; // Fallback / legacy
+  // Date/Time
+  formatStr?: string;
+  dateFormatId?: string;
+  // Programming (expression)
+  expression?: string;
+  // Fixed text
+  fixedValue?: string;
+}
+
 /**
  * Default values for new templates.
  */

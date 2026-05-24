@@ -1,7 +1,7 @@
 // src/renderer/store/data.ts — Data Source Zustand Store with Persistence
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { SerialNumberConfig, DateTimeFormat, DATE_TIME_FORMATS } from '../types/template';
+import { SerialNumberConfig, DateTimeFormat, DATE_TIME_FORMATS, type FieldBinding } from '../types/template';
 import { useTabsStore } from './tabs';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
@@ -72,28 +72,8 @@ export interface DataSource {
   internalPath?: string;
 }
 
-export interface FieldBinding {
-  fieldId: string;
-  type: 'database' | 'keyboard' | 'serial' | 'date' | 'time' | 'fixed' | 'programming';
-  sourceId?: string;
-  column?: string;
-  formula?: string;
-  // Keyboard
-  promptLabel?: string;
-  defaultValue?: string;
-  resetPerJob?: boolean;
-  resetPerRow?: boolean;
-  // Serial
-  serialId?: string; // Reference to global serialConfigs
-  serialConfig?: SerialNumberConfig; // Fallback / legacy
-  // Date/Time
-  formatStr?: string;
-  dateFormatId?: string;
-  // Programming (expression)
-  expression?: string;
-  // Fixed text
-  fixedValue?: string;
-}
+// Re-export FieldBinding from template.ts (moved there to break circular dependency)
+export type { FieldBinding } from '../types/template';
 
 interface DataState {
   sources: DataSource[];

@@ -56,7 +56,10 @@ export default function BatchConsole() {
   useEffect(() => {
     if (pendingKeyboard && !showKeyboardInput) {
       setPendingKeyboard(false);
-      startBatch();
+      startBatch().catch((err: any) => {
+        console.error('[Batch] startBatch after keyboard failed:', err);
+        setProgress({ status: 'failed', errors: [{ rowIndex: 0, message: err.message || 'Print failed' }] });
+      });
     }
   }, [showKeyboardInput, pendingKeyboard]);
 
