@@ -144,7 +144,9 @@ export default function BatchConsole() {
   };
 
   const handlePrint = async () => {
-    const kbBindings = bindings.filter(b => b.type === 'keyboard');
+    // Only consider keyboard bindings for elements in the CURRENT template
+    const elementIds = new Set(elements.map(e => e.id));
+    const kbBindings = bindings.filter(b => b.type === 'keyboard' && elementIds.has(b.fieldId));
     if (kbBindings.length > 0) {
       setPendingKeyboard(true);
       setShowKeyboardInput(true);

@@ -2,12 +2,16 @@
 import React, { useState } from 'react';
 import { usePrintStore } from '../../store/print';
 import { useDataStore } from '../../store/data';
+import { useCanvasStoreCompat } from '../../store/canvas';
 
 export default function KeyboardInputModal() {
   const { showKeyboardInput, setShowKeyboardInput, setKeyboardValue, keyboardValues } = usePrintStore();
   const { bindings } = useDataStore();
+  const { elements } = useCanvasStoreCompat();
 
-  const kbBindings = bindings.filter(b => b.type === 'keyboard');
+  // Only show keyboard bindings for elements in the CURRENT template
+  const elementIds = new Set(elements.map(e => e.id));
+  const kbBindings = bindings.filter(b => b.type === 'keyboard' && elementIds.has(b.fieldId));
 
   if (!showKeyboardInput || kbBindings.length === 0) return null;
 
