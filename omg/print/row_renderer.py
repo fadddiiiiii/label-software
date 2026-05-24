@@ -587,6 +587,16 @@ class RowRenderer:
 
                 if sym == "qrcode" or elem.type == 'qrcode':
                     sx = sy = min(sx, sy)
+                else:
+                    # For linear barcodes, do NOT scale below 1.0 — that
+                    # would compress bars below the minimum width set by
+                    # barcode_engine.py, making them unscannable.
+                    # If the barcode is wider than the element (because min
+                    # bar width was enforced), render at natural size and
+                    # let the clip region handle overflow. The visible
+                    # portion will have properly-sized scannable bars.
+                    if sx < 1.0:
+                        sx = 1.0
 
                 c.saveState()
                 # Frontend: <Group y={showHumanText && elem.text_on_top ? textH : 0}>
