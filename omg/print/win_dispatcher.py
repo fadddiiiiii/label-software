@@ -850,11 +850,9 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 }
                 bc_name = barcode_map.get(sym.lower(), sym.lower())
 
-                # ── Calculate module_width for scannability ──
+                # ── Calculate module_width to fit element width ──
                 # Trial render at module_width=1.0 to count modules,
                 # then set module_width = element_width / num_modules
-                # with a minimum of 0.264mm (ISO standard).
-                MIN_MODULE_WIDTH_MM = 0.264
                 writer_trial = ImageWriter()
                 code_trial = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer_trial)
                 trial_img = code_trial.render({
@@ -870,12 +868,11 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                     px_per_mm_trial = 72 / 25.4
                     num_modules = trial_img.width / px_per_mm_trial
                     if num_modules > 0:
-                        ideal_mw = elem.width_mm / num_modules
-                        module_width = max(ideal_mw, MIN_MODULE_WIDTH_MM)
+                        module_width = elem.width_mm / num_modules
                     else:
-                        module_width = MIN_MODULE_WIDTH_MM
+                        module_width = 0.2
                 else:
-                    module_width = MIN_MODULE_WIDTH_MM
+                    module_width = 0.2
 
                 render_dpi = max(dpi_x, 300)
                 writer = ImageWriter()

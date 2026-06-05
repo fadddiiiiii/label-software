@@ -218,13 +218,10 @@ class BarcodeRenderer:
         # bars too thin to scan.
         #
         # Instead, we calculate module_width so the barcode naturally fits
-        # the element width, with a minimum of 0.264mm (ISO/GS1 standard
-        # minimum x-dimension for Code 128 at ≥150 DPI).
+        # the element width. This avoids post-render scaling entirely.
         #
         # To find num_modules, we do a trial render at module_width=1.0
         # and measure the resulting SVG width.
-        MIN_MODULE_WIDTH_MM = 0.264  # ISO minimum for scannable barcodes
-
         writer_trial = SVGWriter()
         code_trial = barcode.get_barcode_class(bc_name)(value, writer=writer_trial)
         trial_buf = io.BytesIO()
@@ -236,8 +233,6 @@ class BarcodeRenderer:
             "text_distance": 0.0,
             "margin_top": 0.0,
             "margin_bottom": 0.0,
-            "margin_left": 0.0,
-            "margin_right": 0.0,
             "background": "transparent",
         })
         # Parse SVG width to find total number of modules
@@ -249,12 +244,10 @@ class BarcodeRenderer:
             num_modules = float(width_match.group(1))  # at 1mm/module, width_mm == num_modules
 
         if num_modules and num_modules > 0:
-            # module_width = element_width / num_modules, but not below minimum
-            ideal_module_width = width_mm / num_modules
-            module_width = max(ideal_module_width, MIN_MODULE_WIDTH_MM)
+            module_width = width_mm / num_modules
         else:
-            # Fallback: use a safe default
-            module_width = max(0.33, MIN_MODULE_WIDTH_MM)
+            # Fallback: use the default
+            module_width = 0.2
 
         # ── Final render with calculated module_width ───────────────────
         writer = SVGWriter()
@@ -268,8 +261,6 @@ class BarcodeRenderer:
             "text_distance": 0.0,
             "margin_top": 0.0,
             "margin_bottom": 0.0,
-            "margin_left": 0.0,
-            "margin_right": 0.0,
             "background": "transparent",
         })
         svg_str = buffer.getvalue().decode("utf-8")
