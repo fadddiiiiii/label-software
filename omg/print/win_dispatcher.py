@@ -874,7 +874,9 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 else:
                     module_width = 0.2
 
-                render_dpi = max(dpi_x, 300)
+                # Render at the PRINTER's exact DPI so pixels map 1:1
+                # to device dots — no stretching/interpolation needed.
+                render_dpi = max(dpi_x, dpi_y, 203)
                 writer = ImageWriter()
                 code_obj = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer)
                 barcode_img = code_obj.render({
@@ -905,8 +907,18 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
         # Blit barcode image to printer DC
         if barcode_img:
-            # Convert to 1-bit for crisp bars
+            # Convert to pure 1-bit black/white for crisp thermal printing
             barcode_img = barcode_img.convert('L').point(lambda px: 0 if px < 128 else 255).convert('RGB')
+
+            # Set stretch mode to nearest-neighbor (no interpolation)
+            # so bars stay crisp even if image size doesn't match device
+            # pixels exactly. STRETCH_DELETESCANS = 3 = nearest neighbor.
+            try:
+                import win32con
+                hDC.SetStretchBltMode(win32con.STRETCH_DELETESCANS)
+            except Exception:
+                pass  # Non-critical — fallback to default stretch mode
+
             dib = ImageWin.Dib(barcode_img)
             dib.draw(hDC.GetHandleOutput(), (x, bar_y, x + w, bar_y + bar_dev_h))
 

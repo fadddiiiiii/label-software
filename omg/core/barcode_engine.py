@@ -264,6 +264,13 @@ class BarcodeRenderer:
             "background": "transparent",
         })
         svg_str = buffer.getvalue().decode("utf-8")
+
+        # Inject shape-rendering="crispEdges" so bars render with hard
+        # pixel-aligned edges (no anti-aliasing/sub-pixel blending).
+        # This matches how thermal printers physically print dots.
+        if "<svg " in svg_str:
+            svg_str = svg_str.replace("<svg ", '<svg shape-rendering="crispEdges" ', 1)
+
         return svg_str
 
     @staticmethod
