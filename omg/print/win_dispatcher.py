@@ -849,7 +849,12 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                     "gs1_128": "code128",
                 }
                 bc_name = barcode_map.get(sym.lower(), sym.lower())
-                render_dpi = max(dpi_x, dpi_y, 203)
+
+                # Render at 600 DPI with default module_width.
+                # High resolution ensures bar patterns survive the
+                # stretch-blit to element dimensions at any size.
+                # (Tested: 600 DPI scans at all sizes 20-40mm,
+                #  300 DPI fails below 35mm, 203 DPI always fails)
                 writer = ImageWriter()
                 code_obj = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer)
                 barcode_img = code_obj.render({
@@ -857,7 +862,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                     'write_text': False,
                     'quiet_zone': 0,
                     'text_distance': 0,
-                    'dpi': render_dpi,
+                    'dpi': 600,
                 })
                 if barcode_img:
                     barcode_img = barcode_img.convert('RGB')
