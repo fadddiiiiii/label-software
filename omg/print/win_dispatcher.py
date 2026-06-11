@@ -887,14 +887,10 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             # Convert to pure 1-bit black/white for crisp thermal printing
             barcode_img = barcode_img.convert('L').point(lambda px: 0 if px < 128 else 255).convert('RGB')
 
-            # Set stretch mode to nearest-neighbor (no interpolation)
-            # so bars stay crisp when stretched to fit element dimensions.
-            try:
-                import win32con
-                hDC.SetStretchBltMode(win32con.STRETCH_DELETESCANS)
-            except Exception:
-                pass  # Non-critical — fallback to default stretch mode
-
+            # Use default stretch mode (BLACKONWHITE) — it preserves
+            # black pixels by ORing, so thin bars can never be dropped.
+            # STRETCH_DELETESCANS was causing random barcode failures
+            # by dropping scan lines during stretch on some labels.
             dib = ImageWin.Dib(barcode_img)
             dib.draw(hDC.GetHandleOutput(), (x, bar_y, x + w, bar_y + bar_dev_h))
 
