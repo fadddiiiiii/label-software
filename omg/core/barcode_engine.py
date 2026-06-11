@@ -183,12 +183,7 @@ class BarcodeRenderer:
     def _render_linear(symbology: str, value: str,
                        width_mm: float, height_mm: float,
                        show_text: bool = True) -> str:
-        """Render a 1D linear barcode via python-barcode.
-        
-        Calculates module_width so the barcode's natural width matches the
-        element width, avoiding post-render scaling that can make bars too
-        thin to scan on small labels.
-        """
+        """Render a 1D linear barcode via python-barcode."""
         import barcode
         from barcode.writer import SVGWriter
 
@@ -211,50 +206,12 @@ class BarcodeRenderer:
             actual_symbology.lower().replace("-", "")
         )
 
-        # ── Calculate optimal module_width ──────────────────────────────
-        # The python-barcode library generates SVG at module_width * num_modules.
-        # If we use the default (0.2mm), then row_renderer.py has to scale
-        # the SVG to fit the element width — on small labels this makes
-        # bars too thin to scan.
-        #
-        # Instead, we calculate module_width so the barcode naturally fits
-        # the element width. This avoids post-render scaling entirely.
-        #
-        # To find num_modules, we do a trial render at module_width=1.0
-        # and measure the resulting SVG width.
-        writer_trial = SVGWriter()
-        code_trial = barcode.get_barcode_class(bc_name)(value, writer=writer_trial)
-        trial_buf = io.BytesIO()
-        code_trial.write(trial_buf, {
-            "module_width": 1.0,  # 1mm per module for easy calculation
-            "module_height": height_mm,
-            "write_text": False,
-            "quiet_zone": 0.0,
-            "text_distance": 0.0,
-            "margin_top": 0.0,
-            "margin_bottom": 0.0,
-            "background": "transparent",
-        })
-        # Parse SVG width to find total number of modules
-        trial_svg = trial_buf.getvalue().decode("utf-8")
-        num_modules = None
-        import re
-        width_match = re.search(r'width="([\d.]+)mm"', trial_svg)
-        if width_match:
-            num_modules = float(width_match.group(1))  # at 1mm/module, width_mm == num_modules
-
-        if num_modules and num_modules > 0:
-            module_width = width_mm / num_modules
-        else:
-            # Fallback: use the default
-            module_width = 0.2
-
-        # ── Final render with calculated module_width ───────────────────
         writer = SVGWriter()
         code_obj = barcode.get_barcode_class(bc_name)(value, writer=writer)
+
+        # Render to SVG string
         buffer = io.BytesIO()
         code_obj.write(buffer, {
-            "module_width": module_width,
             "module_height": height_mm,
             "write_text": show_text,
             "quiet_zone": 0.0,
@@ -264,13 +221,6 @@ class BarcodeRenderer:
             "background": "transparent",
         })
         svg_str = buffer.getvalue().decode("utf-8")
-
-        # Inject shape-rendering="crispEdges" so bars render with hard
-        # pixel-aligned edges (no anti-aliasing/sub-pixel blending).
-        # This matches how thermal printers physically print dots.
-        if "<svg " in svg_str:
-            svg_str = svg_str.replace("<svg ", '<svg shape-rendering="crispEdges" ', 1)
-
         return svg_str
 
     @staticmethod

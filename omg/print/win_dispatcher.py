@@ -849,38 +849,10 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                     "gs1_128": "code128",
                 }
                 bc_name = barcode_map.get(sym.lower(), sym.lower())
-
-                # ── Calculate module_width to fit element width ──
-                # Trial render at module_width=1.0 to count modules,
-                # then set module_width = element_width / num_modules
-                writer_trial = ImageWriter()
-                code_trial = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer_trial)
-                trial_img = code_trial.render({
-                    'module_width': 1.0,
-                    'module_height': bar_h_mm,
-                    'write_text': False,
-                    'quiet_zone': 0,
-                    'text_distance': 0,
-                    'dpi': 72,  # low DPI for quick trial
-                })
-                if trial_img:
-                    # At 72 DPI with module_width=1mm, each module = 72/25.4 ≈ 2.835 px
-                    px_per_mm_trial = 72 / 25.4
-                    num_modules = trial_img.width / px_per_mm_trial
-                    if num_modules > 0:
-                        module_width = elem.width_mm / num_modules
-                    else:
-                        module_width = 0.2
-                else:
-                    module_width = 0.2
-
-                # Render at the PRINTER's exact DPI so pixels map 1:1
-                # to device dots — no stretching/interpolation needed.
                 render_dpi = max(dpi_x, dpi_y, 203)
                 writer = ImageWriter()
                 code_obj = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer)
                 barcode_img = code_obj.render({
-                    'module_width': module_width,
                     'module_height': bar_h_mm,
                     'write_text': False,
                     'quiet_zone': 0,
@@ -911,8 +883,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
             barcode_img = barcode_img.convert('L').point(lambda px: 0 if px < 128 else 255).convert('RGB')
 
             # Set stretch mode to nearest-neighbor (no interpolation)
-            # so bars stay crisp even if image size doesn't match device
-            # pixels exactly. STRETCH_DELETESCANS = 3 = nearest neighbor.
+            # so bars stay crisp when stretched to fit element dimensions.
             try:
                 import win32con
                 hDC.SetStretchBltMode(win32con.STRETCH_DELETESCANS)
