@@ -197,6 +197,9 @@ class BatchController:
             f"sheet={layout.cols}x{layout.rows}"
         )
 
+        # Store resolved row data for DirectGDI reuse (avoids double-resolving serials)
+        resolved_row_data_for_gdi: list[Dict[str, str]] = []
+
         for idx in range(actual_start, actual_end):
             # Check for cancellation
             if self._cancel_requested:
@@ -254,6 +257,10 @@ class BatchController:
                             # Original 1-label-per-page mode (Match Label Size)
                             pdf_bytes = self.renderer.render(row_data)
                             all_pdf_pages.append(pdf_bytes)
+
+                    # Collect for DirectGDI reuse (only in non-sheet mode)
+                    if not effective_sheet_mode:
+                        resolved_row_data_for_gdi.append(row_data)
 
                 duration_ms = int((time.monotonic() - row_start) * 1000)
                 self.progress.completed_rows += 1
@@ -329,29 +336,28 @@ class BatchController:
                     dispatcher = get_print_dispatcher()
 
                     # ── Tier 0: Direct GDI (native font quality) ──
-                    # Collect all row data for direct rendering.
-                    # This bypasses PDF→bitmap entirely for text.
+                    # Reuse already-resolved row data from the main loop.
+                    # This avoids double-resolving serial numbers and other
+                    # stateful bindings, and prevents duplicate label prints.
                     direct_success = False
                     if not effective_sheet_mode:
                         try:
-                            all_row_data = []
-                            for idx in range(actual_start, actual_end):
-                                rd = self.resolver.resolve_row(self.bindings, idx)
-                                for _c in range(copies_per_label):
-                                    all_row_data.append(rd)
                             direct_success = dispatcher.print_direct(
-                                self.template, all_row_data, printer_name,
-                                copies=1,  # copies already expanded in all_row_data
+                                self.template, resolved_row_data_for_gdi, printer_name,
+                                copies=1,  # copies already expanded in resolved_row_data_for_gdi
                                 label_config=dispatch_label_config
                             )
                             if direct_success:
-                                logger.info(f"DirectGDI dispatched {len(all_row_data)} labels to '{printer_name}'")
+                                logger.info(f"DirectGDI dispatched {len(resolved_row_data_for_gdi)} labels to '{printer_name}'")
                         except Exception as gdi_err:
                             logger.debug(f"DirectGDI not available, falling back to PDF: {gdi_err}")
 
                     # ── Fallback: PDF→bitmap pipeline ──
+                    # The merged PDF already contains all copies (copies_per_label was
+                    # already baked into all_pdf_pages during the main loop), so we
+                    # must pass copies=1 here to avoid printing duplicates.
                     if not direct_success:
-                        dispatcher.print_pdf(merged, printer_name, copies=copies_per_label, label_config=dispatch_label_config)
+                        dispatcher.print_pdf(merged, printer_name, copies=1, label_config=dispatch_label_config)
                         logger.info(f"PDF dispatched to OS spooler for '{printer_name}' ({len(merged)} bytes)")
 
                 except Exception as e:

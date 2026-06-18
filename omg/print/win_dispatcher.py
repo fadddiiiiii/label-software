@@ -850,22 +850,96 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 }
                 bc_name = barcode_map.get(sym.lower(), sym.lower())
 
-                # Render at 600 DPI with default module_width.
-                # High resolution ensures bar patterns survive the
-                # stretch-blit to element dimensions at any size.
-                # (Tested: 600 DPI scans at all sizes 20-40mm,
-                #  300 DPI fails below 35mm, 203 DPI always fails)
-                writer = ImageWriter()
-                code_obj = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer)
-                barcode_img = code_obj.render({
-                    'module_height': bar_h_mm,
-                    'write_text': False,
-                    'quiet_zone': 0,
-                    'text_distance': 0,
-                    'dpi': 600,
-                })
-                if barcode_img:
-                    barcode_img = barcode_img.convert('RGB')
+                if w > 0 and bar_dev_h > 0:
+                    # ── INTEGER-PIXEL BARCODE RENDERING ──────────────────────────────
+                    # Problem with BILINEAR rescaling: floating-point math produces some
+                    # bars/spaces that are only 1 pixel wide. Thermal ink bleed
+                    # (~0.05–0.10 mm per edge) closes 1-pixel gaps entirely, merging
+                    # adjacent bars and making the barcode unreadable by physical scanners.
+                    #
+                    # Solution: extract the exact integer bar widths from an SVG render
+                    # (python-barcode uses integer mm units there), then draw every bar
+                    # as an exact integer number of printer dots. This is the same way
+                    # ZPL/TSPL firmware draws barcodes natively — no floating-point
+                    # rounding, no blurring, no merged bars.
+                    #
+                    # QUIET ZONE: always leave 2mm white on each side (GS1 minimum).
+                    # Physical scanners need clear white space to find the start pattern.
+                    QZ_MM = 2.0
+                    qz_dev = self._mm_to_dev(QZ_MM, dpi_x)
+                    bar_w = max(4, w - 2 * qz_dev)   # dots available for bars
+
+                    import re as _re
+                    from barcode.writer import SVGWriter as _SVGWriter
+                    import io as _io
+
+                    # 1. Render to SVG at 1mm-per-unit (quiet_zone=0 so bars start at x=0)
+                    _sw = _SVGWriter()
+                    _code = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=_sw)
+                    _buf = _io.BytesIO()
+                    _code.write(_buf, {
+                        'module_width': 1.0,   # 1mm per unit module → integer coords in SVG
+                        'module_height': 5,
+                        'write_text': False,
+                        'quiet_zone': 0,
+                        'dpi': 25.4,
+                    })
+                    _svg = _buf.getvalue().decode('utf-8', errors='replace')
+
+                    # 2. Extract bar positions (x in mm) and widths (in mm = unit count)
+                    _bars = _re.findall(
+                        r'<rect[^>]*\bx="([\d.]+)mm"[^>]*\bwidth="([\d.]+)mm"[^>]*style="fill:black',
+                        _svg
+                    )
+                    if not _bars:
+                        # Fallback: attribute order may vary
+                        _bars = []
+                        for _m in _re.finditer(r'<rect([^>]*)style="fill:black', _svg):
+                            _attrs = _m.group(1)
+                            _xm = _re.search(r'\bx="([\d.]+)mm"', _attrs)
+                            _wm = _re.search(r'\bwidth="([\d.]+)mm"', _attrs)
+                            if _xm and _wm:
+                                _bars.append((_xm.group(1), _wm.group(1)))
+
+                    if _bars:
+                        _bar_coords = [(float(_x), float(_ww)) for _x, _ww in _bars]
+                        _total_units = _bar_coords[-1][0] + _bar_coords[-1][1]
+
+                        # 3. Calculate integer dots per unit (floor division → always integer)
+                        _dpu = max(1, int(bar_w // _total_units))
+                        _actual_bar_px = int(_total_units) * _dpu
+
+                        # 4. Create white canvas (w × bar_dev_h), draw bars as exact rectangles
+                        #    Use ImageDraw (C-level fill) — much faster than putpixel loops.
+                        from PIL import ImageDraw as _ImageDraw
+                        canvas = Image.new('L', (w, bar_dev_h), 255)
+                        _draw = _ImageDraw.Draw(canvas)
+                        _offset = qz_dev + (bar_w - _actual_bar_px) // 2  # centre in bar_w
+                        for _bx, _bw in _bar_coords:
+                            _px0 = _offset + int(_bx * _dpu)
+                            _px1 = _offset + int((_bx + _bw) * _dpu) - 1  # inclusive right
+                            if _px0 <= _px1 and _px1 < w:
+                                _draw.rectangle([(_px0, 0), (_px1, bar_dev_h - 1)], fill=0)
+                        barcode_img = canvas.convert('RGB')
+                    else:
+                        # SVG parse failed — fall back to BILINEAR (better than nothing)
+                        logger.warning("DirectGDI: SVG bar parse failed, using BILINEAR fallback")
+                        writer = ImageWriter()
+                        _code2 = barcode_lib.get_barcode_class(bc_name)(barcode_str, writer=writer)
+                        raw_img = _code2.render({
+                            'module_height': 10,
+                            'write_text': False,
+                            'quiet_zone': 0,
+                            'text_distance': 0,
+                            'dpi': 600,
+                        })
+                        if raw_img:
+                            img_gray = raw_img.convert('L')
+                            img_resized = img_gray.resize((bar_w, bar_dev_h), Image.BILINEAR)
+                            img_t = img_resized.point(lambda px: 0 if px < 112 else 255)
+                            canvas = Image.new('L', (w, bar_dev_h), 255)
+                            canvas.paste(img_t, (qz_dev, 0))
+                            barcode_img = canvas.convert('RGB')
         except Exception as bc_err:
             logger.warning(f"DirectGDI: barcode render ({sym}) failed: {bc_err}")
             # Fallback: try the ReportLab path
@@ -884,8 +958,7 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
 
         # Blit barcode image to printer DC
         if barcode_img:
-            # Convert to pure 1-bit black/white for crisp thermal printing
-            barcode_img = barcode_img.convert('L').point(lambda px: 0 if px < 128 else 255).convert('RGB')
+            # The image is already thresholded and resized to exactly the bounding box (w x bar_dev_h)
 
             # Use default stretch mode (BLACKONWHITE) — it preserves
             # black pixels by ORing, so thin bars can never be dropped.
