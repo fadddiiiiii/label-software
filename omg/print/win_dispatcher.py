@@ -851,27 +851,23 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                 bc_name = barcode_map.get(sym.lower(), sym.lower())
 
                 if w > 0 and bar_dev_h > 0:
-                    # ── INTEGER-PIXEL BARCODE RENDERING ──────────────────────────────
-                    # Problem with BILINEAR rescaling: floating-point math produces some
-                    # bars/spaces that are only 1 pixel wide. Thermal ink bleed
-                    # (~0.05–0.10 mm per edge) closes 1-pixel gaps entirely, merging
-                    # adjacent bars and making the barcode unreadable by physical scanners.
+                    # ── INTEGER-PIXEL BARCODE RENDERING WITH ADAPTIVE QUIET ZONE ─────
+                    # Extract exact bar pattern from SVG (integer mm units), then draw
+                    # each bar as an exact integer number of printer dots — same as
+                    # ZPL/TSPL firmware. No floating-point rounding, no bar merging.
                     #
-                    # Solution: extract the exact integer bar widths from an SVG render
-                    # (python-barcode uses integer mm units there), then draw every bar
-                    # as an exact integer number of printer dots. This is the same way
-                    # ZPL/TSPL firmware draws barcodes natively — no floating-point
-                    # rounding, no blurring, no merged bars.
-                    #
-                    # QUIET ZONE: always leave 2mm white on each side (GS1 minimum).
-                    # Physical scanners need clear white space to find the start pattern.
-                    QZ_MM = 2.0
-                    qz_dev = self._mm_to_dev(QZ_MM, dpi_x)
-                    bar_w = max(4, w - 2 * qz_dev)   # dots available for bars
+                    # ADAPTIVE QUIET ZONE:
+                    # At dpu=2 (minimum for thermal scanning), "CCCM" + 8 digits (134
+                    # modules) needs 268px. At a fixed 2mm QZ we have 288px → fits.
+                    # But "CCCM" + 7 digits (145 modules) needs 290px → misses by 2px!
+                    # Rather than dropping to dpu=1 (unscannable), we progressively
+                    # shrink the quiet zone from 2mm down to 0mm until dpu≥2 fits.
+                    # Even 0.5mm QZ is enough for most scanners in practice.
 
                     import re as _re
                     from barcode.writer import SVGWriter as _SVGWriter
                     import io as _io
+                    from PIL import ImageDraw as _ImageDraw
 
                     # 1. Render to SVG at 1mm-per-unit (quiet_zone=0 so bars start at x=0)
                     _sw = _SVGWriter()
@@ -905,22 +901,44 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                         _bar_coords = [(float(_x), float(_ww)) for _x, _ww in _bars]
                         _total_units = _bar_coords[-1][0] + _bar_coords[-1][1]
 
-                        # 3. Calculate integer dots per unit (floor division → always integer)
-                        _dpu = max(1, int(bar_w // _total_units))
-                        _actual_bar_px = int(_total_units) * _dpu
+                        # 3. Adaptive quiet zone: try from 2mm down to 0mm
+                        _chosen_qz_dev = 0
+                        _chosen_dpu = 1
+                        for _qz_mm in (2.0, 1.5, 1.0, 0.5, 0.0):
+                            _qz_px = self._mm_to_dev(_qz_mm, dpi_x)
+                            _avail = max(4, w - 2 * _qz_px)
+                            _test_dpu = max(1, int(_avail // _total_units))
+                            if _test_dpu >= 2:
+                                _chosen_qz_dev = _qz_px
+                                _chosen_dpu = _test_dpu
+                                break
 
-                        # 4. Create white canvas (w × bar_dev_h), draw bars as exact rectangles
-                        #    Use ImageDraw (C-level fill) — much faster than putpixel loops.
-                        from PIL import ImageDraw as _ImageDraw
-                        canvas = Image.new('L', (w, bar_dev_h), 255)
-                        _draw = _ImageDraw.Draw(canvas)
-                        _offset = qz_dev + (bar_w - _actual_bar_px) // 2  # centre in bar_w
-                        for _bx, _bw in _bar_coords:
-                            _px0 = _offset + int(_bx * _dpu)
-                            _px1 = _offset + int((_bx + _bw) * _dpu) - 1  # inclusive right
-                            if _px0 <= _px1 and _px1 < w:
-                                _draw.rectangle([(_px0, 0), (_px1, bar_dev_h - 1)], fill=0)
-                        barcode_img = canvas.convert('RGB')
+                        _bar_w = max(4, w - 2 * _chosen_qz_dev)
+
+                        if _chosen_dpu >= 2:
+                            # Integer pixel drawing — every bar exactly N×dpu pixels
+                            _actual_bar_px = int(_total_units) * _chosen_dpu
+                            canvas = Image.new('L', (w, bar_dev_h), 255)
+                            _draw = _ImageDraw.Draw(canvas)
+                            _offset = _chosen_qz_dev + (_bar_w - _actual_bar_px) // 2
+                            for _bx, _bw in _bar_coords:
+                                _px0 = _offset + int(_bx * _chosen_dpu)
+                                _px1 = _offset + int((_bx + _bw) * _chosen_dpu) - 1
+                                if _px0 <= _px1 and _px1 < w:
+                                    _draw.rectangle([(_px0, 0), (_px1, bar_dev_h - 1)], fill=0)
+                            barcode_img = canvas.convert('RGB')
+                        else:
+                            # Proportional fallback — data is too long for dpu≥2 even at QZ=0.
+                            # Use the full element width with proportional scaling (best effort).
+                            canvas = Image.new('L', (w, bar_dev_h), 255)
+                            _draw = _ImageDraw.Draw(canvas)
+                            _scale = w / _total_units
+                            for _bx, _bw in _bar_coords:
+                                _px0 = int(round(_bx * _scale))
+                                _px1 = int(round((_bx + _bw) * _scale)) - 1
+                                if _px0 <= _px1 and _px0 >= 0 and _px1 < w:
+                                    _draw.rectangle([(_px0, 0), (_px1, bar_dev_h - 1)], fill=0)
+                            barcode_img = canvas.convert('RGB')
                     else:
                         # SVG parse failed — fall back to BILINEAR (better than nothing)
                         logger.warning("DirectGDI: SVG bar parse failed, using BILINEAR fallback")
@@ -935,10 +953,12 @@ class Win32PrintDispatcher(AbstractPrintDispatcher):
                         })
                         if raw_img:
                             img_gray = raw_img.convert('L')
-                            img_resized = img_gray.resize((bar_w, bar_dev_h), Image.BILINEAR)
+                            _qz_dev = self._mm_to_dev(2.0, dpi_x)
+                            _bar_w = max(4, w - 2 * _qz_dev)
+                            img_resized = img_gray.resize((_bar_w, bar_dev_h), Image.BILINEAR)
                             img_t = img_resized.point(lambda px: 0 if px < 112 else 255)
                             canvas = Image.new('L', (w, bar_dev_h), 255)
-                            canvas.paste(img_t, (qz_dev, 0))
+                            canvas.paste(img_t, (_qz_dev, 0))
                             barcode_img = canvas.convert('RGB')
         except Exception as bc_err:
             logger.warning(f"DirectGDI: barcode render ({sym}) failed: {bc_err}")
